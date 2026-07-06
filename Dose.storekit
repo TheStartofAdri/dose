@@ -1,0 +1,74 @@
+{
+  "identifier" : "A1B2C3D4-0000-0000-0000-0000000000D0",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "B1000000-0000-0000-0000-0000000000D0",
+      "localizations" : [],
+      "name" : "Dose Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "5.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "C1000000-0000-0000-0000-0000000000D0",
+          "introductoryOffer" : {
+            "internalID" : "D1000000-0000-0000-0000-0000000000D0",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Dose Premium, billed monthly",
+              "displayName" : "Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.thestartofadri.dose.premium.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Dose Premium Monthly",
+          "subscriptionGroupID" : "B1000000-0000-0000-0000-0000000000D0",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "44.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "C2000000-0000-0000-0000-0000000000D0",
+          "introductoryOffer" : {
+            "internalID" : "D2000000-0000-0000-0000-0000000000D0",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Dose Premium, billed yearly",
+              "displayName" : "Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.thestartofadri.dose.premium.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Dose Premium Annual",
+          "subscriptionGroupID" : "B1000000-0000-0000-0000-0000000000D0",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

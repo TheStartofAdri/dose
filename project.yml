@@ -1,0 +1,117 @@
+name: Dose
+options:
+  bundleIdPrefix: com.thestartofadri
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"          # Swift 5 language mode (compiler is 6.3) — avoids strict-concurrency
+                                  # friction with SwiftData @Model crossing into views for this pass.
+    SWIFT_STRICT_CONCURRENCY: minimal
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+configs:
+  Debug: debug
+  Release: release
+
+schemes:
+  Dose:
+    build:
+      targets:
+        Dose: all
+    run:
+      config: Debug
+      # Local StoreKit testing (simulator + on-device from Xcode) before App Store Connect products exist.
+      storeKitConfiguration: Dose.storekit
+    test:
+      config: Debug
+      targets:
+        - DoseTests
+        - DoseUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+targets:
+  Dose:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Dose
+    configFiles:
+      Debug: Config/Secrets.xcconfig
+      Release: Config/Secrets.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thestartofadri.dose
+        PRODUCT_NAME: Dose
+        TARGETED_DEVICE_FAMILY: "1"     # iPhone
+        ENABLE_PREVIEWS: YES
+        # App icon: the AppIcon set in Dose/Assets.xcassets. actool generates every device size
+        # (incl. 120×120) from the single 1024 and injects CFBundleIconName into the built Info.plist.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Time Sensitive notifications (so dose reminders break through Focus/DND). Standard
+        # entitlement — NOT Critical Alerts. Simulator builds don't validate it; a device/App Store
+        # build needs the capability in the provisioning profile.
+        CODE_SIGN_ENTITLEMENTS: Dose/Dose.entitlements
+    info:
+      path: Dose/Info.plist
+      properties:
+        CFBundleDisplayName: Dose
+        CFBundleName: Dose
+        # Marketing version (user-facing) — stays 1.0 until a real release.
+        CFBundleShortVersionString: "1.0"
+        # Build number — MUST strictly increase for EVERY TestFlight/App Store upload (App Store Connect
+        # rejects a duplicate version+build). Increment this (3 → 4 → 5 …) before each archive/upload.
+        CFBundleVersion: "3"
+        # actool on this toolchain emits only the nested CFBundleIcons entry, not the top-level
+        # CFBundleIconName that App Store validation requires (error 90713) — so set it explicitly.
+        # Value = the AppIcon set name in Dose/Assets.xcassets.
+        CFBundleIconName: AppIcon
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSCameraUsageDescription: "Dose reads medication labels you scan to fill in medicine details. Your medication list stays on your device."
+        SupabaseURL: "https://$(SUPABASE_HOST)"
+        SupabaseAnonKey: "$(SUPABASE_ANON_KEY)"
+        # Background refill of windowed reminders (BGAppRefreshTask). The identifier MUST be listed
+        # here or BGTaskScheduler.register traps at launch.
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.thestartofadri.dose.refresh
+
+  DoseTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Tests/DoseTests
+    dependencies:
+      - target: Dose
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thestartofadri.dose.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  DoseUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Dose
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thestartofadri.dose.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Dose

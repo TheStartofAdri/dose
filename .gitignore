@@ -1,0 +1,19 @@
+# Xcode / build
+DerivedData/
+build/
+*.xcodeproj
+*.xcworkspace
+!default.xcworkspace
+xcuserdata/
+*.xcuserstate
+.DS_Store
+
+# XcodeGen generates the project from project.yml — don't commit the generated project.
+# (Listed above via *.xcodeproj)
+
+# Secrets — real Supabase values are local only.
+Config/Secrets.xcconfig
+
+# Supabase / Deno
+supabase/.temp/
+node_modules/
