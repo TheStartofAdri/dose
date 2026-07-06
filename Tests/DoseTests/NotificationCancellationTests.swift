@@ -85,6 +85,89 @@ final class NotificationCancellationTests: XCTestCase {
                       "taking the dose cancels the pending snooze for that slot — no double-dose prompt")
     }
 
+    // MARK: - Lead-time heads-ups are informational: a glance-tap must never write a dose record
+
+    private func makeHandlerAndContainer() throws -> (NotificationActionHandler, ModelContainer) {
+        let schema = DoseStore.currentSchema
+        let container = try ModelContainer(for: schema,
+                                           configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        return (NotificationActionHandler(container: container), container)
+    }
+
+    /// THE bug: a "coming up in N min" heads-up carries the FUTURE dose's slot, and the default tap
+    /// (just opening the app from the banner) recorded it `.taken` half an hour early AND cancelled the
+    /// real on-time reminder. A default tap on `kind == "leadtime"` must be a pure navigation: no log,
+    /// no cancellation.
+    func testDefaultTapOnLeadTimeHeadsUpRecordsNothing() throws {
+        let (handler, container) = try makeHandlerAndContainer()
+        let med = UUID()
+        let slot = Date(timeIntervalSince1970: 1_780_000_000)
+
+        var written: DoseLog?
+        let cancelled = captureCancellations {
+            written = handler.handleAction(UNNotificationDefaultActionIdentifier, kind: "leadtime",
+                                           medicineID: med, name: "Aspirin", dosage: "100 mg",
+                                           scheduledFor: slot)
+        }
+        XCTAssertNil(written, "tapping a heads-up to open the app is not a dose action")
+        XCTAssertTrue(cancelled.isEmpty, "the slot's real on-time reminder must survive the tap")
+        let logs = try container.mainContext.fetch(FetchDescriptor<DoseLog>())
+        XCTAssertTrue(logs.isEmpty, "no DoseLog of any kind is written for a heads-up glance")
+    }
+
+    /// Regression guard: the default tap on a REAL dose reminder (primary/escalation/snooze — and
+    /// legacy payloads with no kind) still records the take, exactly as designed.
+    func testDefaultTapOnDoseRemindersStillTakes() throws {
+        for kind in ["primary", "escalation", "snooze", nil] as [String?] {
+            let (handler, _) = try makeHandlerAndContainer()
+            let med = UUID()
+            let slot = Date(timeIntervalSince1970: 1_780_000_000)
+            let log = handler.handleAction(UNNotificationDefaultActionIdentifier, kind: kind,
+                                           medicineID: med, name: "Aspirin", dosage: nil,
+                                           scheduledFor: slot)
+            XCTAssertEqual(log?.action, .taken, "default tap takes for kind \(kind ?? "nil")")
+        }
+    }
+
+    /// The explicit Take button on a heads-up IS a deliberate dose action (taking a few minutes early
+    /// is the user's call) — it must keep recording and cancelling the slot.
+    func testExplicitTakeOnLeadTimeStillRecords() throws {
+        let (handler, _) = try makeHandlerAndContainer()
+        let med = UUID()
+        let slot = Date(timeIntervalSince1970: 1_780_000_000)
+        let cancelled = captureCancellations {
+            let log = handler.handleAction(NotificationScheduler.takeAction, kind: "leadtime",
+                                           medicineID: med, name: "Aspirin", dosage: nil,
+                                           scheduledFor: slot)
+            XCTAssertEqual(log?.action, .taken)
+        }
+        XCTAssertEqual(Set(cancelled), Set(NotificationPlanner.slotIDs(med, slot)))
+    }
+
+    /// "Remind in 10 min" on a heads-up arms an extra nudge but must NOT cancel the slot (the real
+    /// on-time reminder hasn't fired yet) and must NOT write a `.snoozed` log (the dose isn't due, and
+    /// a snooze log would distort the Today status of an upcoming dose).
+    func testSnoozeOnLeadTimeAddsNudgeWithoutCancellingSlotOrLogging() throws {
+        let (handler, container) = try makeHandlerAndContainer()
+        let med = UUID()
+        let slot = Date(timeIntervalSince1970: 1_780_000_000)
+
+        var written: DoseLog?
+        var cancelled: [String] = []
+        let scheduled = captureScheduled {
+            cancelled = captureCancellations {
+                written = handler.handleAction(NotificationScheduler.snoozeAction, kind: "leadtime",
+                                               medicineID: med, name: "Aspirin", dosage: nil,
+                                               scheduledFor: slot)
+            }
+        }
+        XCTAssertEqual(scheduled, [NotificationPlanner.snoozeID(med, slot)], "the extra nudge is armed")
+        XCTAssertTrue(cancelled.isEmpty, "the real on-time reminder survives")
+        XCTAssertNil(written)
+        let logs = try container.mainContext.fetch(FetchDescriptor<DoseLog>())
+        XCTAssertTrue(logs.isEmpty, "no .snoozed log for a not-yet-due dose")
+    }
+
     /// The Today take/skip path calls exactly `cancelSlot(medicineID:scheduledFor:)`; confirm it also
     /// removes the slot's snooze (the same mechanism the notification path uses).
     func testTodayPathCancelSlotRemovesTheSnooze() {

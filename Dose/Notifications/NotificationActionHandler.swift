@@ -31,8 +31,8 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
         let name = info["medicineName"] as? String ?? "Medicine"
         let dosage = info["dosage"] as? String
         let scheduledFor = Self.resolveScheduledFor(info: info, now: .now)
-        handleAction(response.actionIdentifier, medicineID: medicineID, name: name, dosage: dosage,
-                     scheduledFor: scheduledFor)
+        handleAction(response.actionIdentifier, kind: info["kind"] as? String,
+                     medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
     }
 
     /// The action half, extracted so it's directly testable (a `UNNotificationResponse` can't be
@@ -40,10 +40,33 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
     /// `ModelContext(container)` — so a skip/take from a notification is reflected live by the
     /// History/Today `@Query` without a reload. Returns the written log (for tests to assert which
     /// context it belongs to).
+    /// Kinds whose DEFAULT tap records the dose as taken — real dose prompts only. Informational
+    /// kinds (the "coming up in N min" lead-time heads-up, future sentinels) are excluded: their
+    /// `scheduledFor` is a dose that isn't due yet, so a glance-tap must be pure navigation. `nil`
+    /// (a legacy payload without a kind) is treated as a dose prompt to preserve behavior.
+    private static func isDosePrompt(_ kind: String?) -> Bool {
+        guard let kind else { return true }
+        return ["primary", "escalation", "snooze"].contains(kind)
+    }
+
     @discardableResult
-    func handleAction(_ actionID: String, medicineID: UUID, name: String, dosage: String?,
-                      scheduledFor: Date) -> DoseLog? {
+    func handleAction(_ actionID: String, kind: String? = nil, medicineID: UUID, name: String,
+                      dosage: String?, scheduledFor: Date) -> DoseLog? {
         switch actionID {
+        // Informational banners: the default tap just opens the app — no log, no cancellation. The
+        // EXPLICIT Take/Skip buttons below still work everywhere (a deliberate early take is the
+        // user's call); only the ambiguous tap is neutered.
+        case UNNotificationDefaultActionIdentifier where !Self.isDosePrompt(kind):
+            return nil
+
+        // "Remind in 10 min" on a heads-up arms an extra nudge but leaves the slot alone: the dose
+        // isn't due, so no `.snoozed` log (it would distort an upcoming dose's status) and the real
+        // on-time reminder must survive.
+        case NotificationScheduler.snoozeAction where !Self.isDosePrompt(kind):
+            NotificationScheduler.shared.scheduleSnooze(medicineID: medicineID, medicineName: name,
+                                                        dosage: dosage, scheduledFor: scheduledFor)
+            return nil
+
         case NotificationScheduler.takeAction, UNNotificationDefaultActionIdentifier:
             let log = log(.taken, medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
             NotificationScheduler.shared.cancelSlot(medicineID: medicineID, scheduledFor: scheduledFor)
