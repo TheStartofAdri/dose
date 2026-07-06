@@ -39,6 +39,11 @@ final class SubscriptionStore: ObservableObject {
     /// The first product fetch has FINISHED (success or failure) — gates the paywall's "unavailable"
     /// state so a still-loading store is never mistaken for "no products".
     @Published private(set) var productsResolved: Bool = false
+    /// Whether THIS customer is eligible for the introductory offer (the 7-day free trial), `nil`
+    /// until resolved. Eligibility is per subscription group and both plans share one group, so a
+    /// single answer covers both. A lapsed subscriber has consumed the offer → `false` — the paywall
+    /// must then show the plain price, never a trial promise that ends in an immediate charge.
+    @Published private(set) var introEligible: Bool?
     @Published private(set) var products: [Product] = []
     @Published var lastError: String?
 
@@ -81,8 +86,12 @@ final class SubscriptionStore: ObservableObject {
 
     func loadProducts() async {
         defer { productsResolved = true }
-        do { products = try await Product.products(for: Self.productIDs).sorted { $0.price < $1.price } }
-        catch { lastError = error.localizedDescription }
+        do {
+            products = try await Product.products(for: Self.productIDs).sorted { $0.price < $1.price }
+            if let subscription = products.first?.subscription {
+                introEligible = await subscription.isEligibleForIntroOffer
+            }
+        } catch { lastError = error.localizedDescription }
     }
 
     /// Recompute `isPremium` from current entitlements and `hasEverSubscribed` from all transactions.

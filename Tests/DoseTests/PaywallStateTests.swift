@@ -24,4 +24,23 @@ final class PaywallStateTests: XCTestCase {
         XCTAssertEqual(PaywallView.purchaseState(productsResolved: false, hasProducts: false), .loading)
         XCTAssertEqual(PaywallView.purchaseState(productsResolved: false, hasProducts: true), .loading)
     }
+
+    // MARK: - Honest trial copy: the trial is advertised only to customers who will actually get it
+
+    /// A lapsed subscriber already consumed the intro offer — promising "7-day free trial" and then
+    /// charging immediately is a trust/guideline-2.3 violation. Unknown eligibility never over-promises.
+    func testPriceLineAdvertisesTrialOnlyWhenEligible() {
+        XCTAssertEqual(PaywallView.priceLine(displayPrice: "$44.99", per: "year", introEligible: true),
+                       "7-day free trial, then $44.99/year")
+        XCTAssertEqual(PaywallView.priceLine(displayPrice: "$44.99", per: "year", introEligible: false),
+                       "$44.99/year", "no trial promise for a customer who won't get one")
+        XCTAssertEqual(PaywallView.priceLine(displayPrice: "$5.99", per: "month", introEligible: nil),
+                       "$5.99/month", "unknown eligibility defaults to the honest plain price")
+    }
+
+    func testCTATitleMatchesEligibility() {
+        XCTAssertEqual(PaywallView.ctaTitle(introEligible: true), "Start 7-day free trial")
+        XCTAssertEqual(PaywallView.ctaTitle(introEligible: false), "Subscribe")
+        XCTAssertEqual(PaywallView.ctaTitle(introEligible: nil), "Subscribe")
+    }
 }

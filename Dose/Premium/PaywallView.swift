@@ -125,8 +125,23 @@ struct PaywallView: View {
     }
 
     // Price lines — from the loaded Product when available, with the configured fallbacks otherwise.
-    private var annualPriceLine: String { "7-day free trial, then \(store.annual?.displayPrice ?? "$44.99")/year" }
-    private var monthlyPriceLine: String { "7-day free trial, then \(store.monthly?.displayPrice ?? "$5.99")/month" }
+    // The trial is advertised ONLY when StoreKit confirms this customer is eligible: a lapsed
+    // subscriber already consumed the intro offer, and a trial promise that ends in an immediate
+    // charge is a trust (and guideline 2.3) violation. Unknown eligibility never over-promises.
+    static func priceLine(displayPrice: String, per: String, introEligible: Bool?) -> String {
+        introEligible == true ? "7-day free trial, then \(displayPrice)/\(per)" : "\(displayPrice)/\(per)"
+    }
+    static func ctaTitle(introEligible: Bool?) -> String {
+        introEligible == true ? "Start 7-day free trial" : "Subscribe"
+    }
+    private var annualPriceLine: String {
+        Self.priceLine(displayPrice: store.annual?.displayPrice ?? "$44.99", per: "year",
+                       introEligible: store.introEligible)
+    }
+    private var monthlyPriceLine: String {
+        Self.priceLine(displayPrice: store.monthly?.displayPrice ?? "$5.99", per: "month",
+                       introEligible: store.introEligible)
+    }
     private var annualPerMonthLine: String {
         if let a = store.annual { return "Just \((a.price / 12).formatted(a.priceFormatStyle))/month" }
         return "Just $3.75/month"
@@ -187,7 +202,7 @@ struct PaywallView: View {
         } label: {
             Group {
                 if working { ProgressView().tint(.white) }
-                else { Text("Start 7-day free trial").font(.headline) }
+                else { Text(Self.ctaTitle(introEligible: store.introEligible)).font(.headline) }
             }
             .frame(maxWidth: .infinity).padding(.vertical, 14)
         }
