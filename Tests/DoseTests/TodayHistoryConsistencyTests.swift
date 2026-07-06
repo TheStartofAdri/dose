@@ -70,4 +70,24 @@ final class TodayHistoryConsistencyTests: XCTestCase {
         XCTAssertEqual(today.count, 1, "the freshly-added med still appears on Today (not hidden)")
         XCTAssertEqual(today.first?.status, .due, "its pre-creation dose stays takeable, not 'Missed'")
     }
+
+    /// Multi-log slots: Take at 08:01 then "Skip today" at 08:20. Today resolves by the LATEST log
+    /// (Skipped); History must resolve the SAME slot the SAME way — pre-fix it checked `.taken` first
+    /// and the two screens permanently disagreed about the same dose.
+    func testTakeThenSkipAgreesOnBothScreens() {
+        let now = at(2026, 6, 16, 12, 0)
+        let med = dailyMed(createdAt: at(2026, 6, 16, 6, 0))
+        let slot = at(2026, 6, 16, 8, 0)
+        let logs = [
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .taken, actionedAt: at(2026, 6, 16, 8, 1)),
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .skipped, actionedAt: at(2026, 6, 16, 8, 20)),
+        ]
+        let today = ExecutionEngine.todaysDoses(medicines: [med], logs: logs, now: now, calendar: cal)
+        let series = AdherenceCalculator.days(medicines: [med], logs: logs, now: now, days: 7, calendar: cal)
+
+        XCTAssertEqual(today.first?.status, .skipped, "Today: the latest log wins")
+        XCTAssertEqual(series.last?.skipped, 1, "History resolves the same slot the same way")
+        XCTAssertEqual(series.last?.taken, 0, "History must not ALSO count the overridden take")
+        XCTAssertEqual(AdherenceCalculator.missedCount(series), 0, "and it is not a miss on either screen")
+    }
 }

@@ -22,6 +22,54 @@ final class AdherenceTests: XCTestCase {
         DoseLogSnapshot(medicineID: medID, scheduledFor: at(y, mo, d, h, 0), action: .skipped, actionedAt: at(y, mo, d, h, 1))
     }
 
+    // MARK: - Multi-log slots resolve by the LATEST log (the same rule Today's status uses)
+
+    /// Take at 08:01, then "Skip today" at 08:20 — the user corrected themselves. Today's card shows
+    /// Skipped (latest log wins); History must agree instead of silently keeping the overridden take.
+    /// Pre-fix, dayAdherence checked `.taken` FIRST regardless of order, so the two screens disagreed
+    /// about the same slot forever.
+    func testTakeThenSkipCountsAsSkippedNotTaken() {
+        let now = at(2026, 6, 16, 12, 0)
+        let slot = at(2026, 6, 16, 8, 0)
+        let logs = [
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .taken, actionedAt: at(2026, 6, 16, 8, 1)),
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .skipped, actionedAt: at(2026, 6, 16, 8, 20)),
+        ]
+        let days = AdherenceCalculator.days(medicines: [dailyMed()], logs: logs, now: now, days: 1, calendar: cal)
+        XCTAssertEqual(days.last?.skipped, 1, "the latest action (skip) is the slot's resolution")
+        XCTAssertEqual(days.last?.taken, 0, "the overridden take no longer counts")
+        XCTAssertEqual(days.last?.missed, 0)
+    }
+
+    /// The mirror case: skip first, then take late — the take wins (one slot, one resolution).
+    func testSkipThenTakeCountsAsTaken() {
+        let now = at(2026, 6, 16, 12, 0)
+        let slot = at(2026, 6, 16, 8, 0)
+        let logs = [
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .skipped, actionedAt: at(2026, 6, 16, 8, 5)),
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .taken, actionedAt: at(2026, 6, 16, 9, 0)),
+        ]
+        let days = AdherenceCalculator.days(medicines: [dailyMed()], logs: logs, now: now, days: 1, calendar: cal)
+        XCTAssertEqual(days.last?.taken, 1)
+        XCTAssertEqual(days.last?.skipped, 0)
+    }
+
+    /// Orphan slots (no current rule reconstructs them, e.g. after a schedule edit) resolve by the
+    /// SAME latest-log rule — pre-fix the orphan loop counted whichever entry came first in the array.
+    func testOrphanTakeThenSkipCountsAsSkipped() {
+        let now = at(2026, 6, 16, 12, 0)
+        let eveningMed = MedicineSnapshot(id: medID, name: "X", dosage: nil,
+                                          rules: [DoseSlotRule(hour: 20, minute: 0)])   // 08:00 is an orphan
+        let slot = at(2026, 6, 16, 8, 0)
+        let logs = [
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .taken, actionedAt: at(2026, 6, 16, 8, 1)),
+            DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .skipped, actionedAt: at(2026, 6, 16, 8, 20)),
+        ]
+        let days = AdherenceCalculator.days(medicines: [eveningMed], logs: logs, now: now, days: 1, calendar: cal)
+        XCTAssertEqual(days.last?.skipped, 1, "orphan slot: latest log wins, counted once")
+        XCTAssertEqual(days.last?.taken, 0)
+    }
+
     func testAdherenceCountsPastResolvedSlots() {
         let now = at(2026, 6, 16, 12, 0)
         let logs = [taken(2026, 6, 16), taken(2026, 6, 15), taken(2026, 6, 14)]  // 06-13 forgotten

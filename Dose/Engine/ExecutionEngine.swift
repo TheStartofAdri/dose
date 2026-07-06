@@ -93,6 +93,10 @@ enum DoseStatus: String, Sendable {
     case taken      // green — settled
     case skipped    // neutral — explicitly skipped, settled
     case snoozed    // shows the new time
+
+    /// The user already resolved this slot — further Take/Skip actions would stack contradictory
+    /// logs (take-then-skip reads differently per surface); Undo is the correction path.
+    var isSettled: Bool { self == .taken || self == .skipped }
 }
 
 struct TodayDose: Identifiable, Sendable, Hashable {

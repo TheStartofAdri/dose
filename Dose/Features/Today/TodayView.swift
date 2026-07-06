@@ -79,14 +79,20 @@ struct TodayView: View {
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowBackground(Color.clear)
-                        // Simple, non-conflicting gestures: right = Take, left = Skip today.
+                        // Simple, non-conflicting gestures: right = Take, left = Skip today. Settled
+                        // rows get neither — a second swipe would stack a contradictory log on the
+                        // slot (take-then-skip); the card's Undo is the correction path.
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            Button { record(.taken, for: dose) } label: { Label("Take", systemImage: "checkmark") }
-                                .tint(.green)
+                            if !dose.status.isSettled {
+                                Button { record(.taken, for: dose) } label: { Label("Take", systemImage: "checkmark") }
+                                    .tint(.green)
+                            }
                         }
                         .swipeActions(edge: .trailing) {
-                            Button { record(.skipped, for: dose) } label: { Label("Skip today", systemImage: "minus.circle") }
-                                .tint(.gray)
+                            if !dose.status.isSettled {
+                                Button { record(.skipped, for: dose) } label: { Label("Skip today", systemImage: "minus.circle") }
+                                    .tint(.gray)
+                            }
                         }
                         // Per-row confirmations so the popover anchors to the exact card whose ⋯ was tapped.
                         .confirmationDialog("Archive this medicine?", isPresented: archiveRowBinding(dose), presenting: archiving) { medicine in

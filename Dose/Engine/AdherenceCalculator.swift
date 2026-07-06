@@ -85,25 +85,41 @@ enum AdherenceCalculator {
             for rule in medicine.rules {
                 guard let slot = rule.scheduledDate(on: day, calendar: calendar) else { continue }
                 guard seenSlots.insert(slot).inserted else { continue }   // a duplicate rule counts once
-                if log(.taken, medicine.id, slot, logs) {
+                // The slot's LATEST log is its resolution — the same rule Today's `status()` uses, so
+                // a take-then-skip (user corrected themselves) reads Skipped on BOTH screens instead
+                // of Skipped on Today but taken in History. Resolved actions stay log-driven (no
+                // lifetime floor); a lone snooze resolves nothing.
+                switch ExecutionEngine.latestLog(medicineID: medicine.id, scheduledFor: slot, in: logs)?.action {
+                case .taken:
                     taken += 1; accountedSlots.append(slot)        // resolved → always counts (no floor)
-                } else if log(.skipped, medicine.id, slot, logs) {
+                case .skipped:
                     skipped += 1; accountedSlots.append(slot)      // neutral, but still displayed
-                } else if now > slot && ExecutionEngine.isWithinLifetime(
-                            scheduledFor: slot, createdAt: medicine.createdAt,
-                            endDate: medicine.endDate, calendar: calendar) {
-                    missed += 1                                    // unfulfilled in-lifetime slot
+                case .snoozed, nil:
+                    if now > slot && ExecutionEngine.isWithinLifetime(
+                        scheduledFor: slot, createdAt: medicine.createdAt,
+                        endDate: medicine.endDate, calendar: calendar) {
+                        missed += 1                                // unfulfilled in-lifetime slot
+                    }
+                    // else: upcoming, or a no-log slot outside the med's lifetime → not counted
                 }
-                // else: upcoming, or a no-log slot outside the med's lifetime → not counted
             }
 
             // Orphan logs: real takes/skips on this day whose slot no current rule reconstructs
-            // (e.g. the schedule was edited after the dose). They must still count.
+            // (e.g. the schedule was edited after the dose). They must still count — resolved by the
+            // SAME latest-log rule (pre-fix this counted whichever entry came first in the array).
+            var orphanSlots: [Date] = []
             for entry in logs where entry.medicineID == medicine.id
                 && calendar.isDate(entry.scheduledFor, inSameDayAs: day)
-                && !accountedSlots.contains(where: { ExecutionEngine.sameSlot($0, entry.scheduledFor) }) {
-                if entry.action == .taken { taken += 1; accountedSlots.append(entry.scheduledFor) }
-                else if entry.action == .skipped { skipped += 1; accountedSlots.append(entry.scheduledFor) }
+                && !accountedSlots.contains(where: { ExecutionEngine.sameSlot($0, entry.scheduledFor) })
+                && !orphanSlots.contains(where: { ExecutionEngine.sameSlot($0, entry.scheduledFor) }) {
+                orphanSlots.append(entry.scheduledFor)
+            }
+            for slot in orphanSlots {
+                switch ExecutionEngine.latestLog(medicineID: medicine.id, scheduledFor: slot, in: logs)?.action {
+                case .taken: taken += 1
+                case .skipped: skipped += 1
+                case .snoozed, nil: break   // a lone snooze never resolves a slot
+                }
             }
         }
         return DayAdherence(date: day, taken: taken, skipped: skipped, missed: missed)
@@ -132,7 +148,4 @@ enum AdherenceCalculator {
         rate(days) ?? 1
     }
 
-    private static func log(_ action: DoseAction, _ medicineID: UUID, _ slot: Date, _ logs: [DoseLogSnapshot]) -> Bool {
-        logs.contains { $0.medicineID == medicineID && $0.action == action && ExecutionEngine.sameSlot($0.scheduledFor, slot) }
-    }
 }
