@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import Dose
 
 /// Item 7: a fresh manual entry must start genuinely empty — no default/stray value (the "At" bug).
@@ -150,5 +151,52 @@ final class EditableDraftTests: XCTestCase {
         let draft = EditableDraft(name: "Aspirin", dosage: "100 mg", times: [.now], source: .manual)
         XCTAssertFalse(draft.mustReview("schedule"), "a manual schedule is the user's own — never flagged")
         XCTAssertFalse(draft.blocksConfirm)
+    }
+
+    // MARK: - Every-N-days anchor must survive an edit (wrong-day dosing bug)
+
+    private var utc: Calendar {
+        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }
+
+    /// THE bug: `init(editing:)` dropped the rule's `anchorDate` and `doseTimes()` re-anchored at the
+    /// edit day, so editing ONLY the name of an "every 3 days" med (anchored Jun 15 → doses 15/18/21)
+    /// on Jun 17 silently shifted the cycle to 17/20/23 — a wrong-day dosing error. The anchor must
+    /// round-trip through the edit draft untouched.
+    @MainActor
+    func testEditingPreservesEveryNDaysAnchor() throws {
+        let cal = utc
+        let schema = DoseStore.currentSchema
+        let container = try ModelContainer(for: schema,
+                                           configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let ctx = ModelContext(container)
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 6, day: 15))!
+        let med = Medicine(name: "Metformin", trustState: .confirmed)
+        let dt = DoseTime(hour: 8, minute: 0, intervalDays: 3, anchorDate: anchor)
+        med.doseTimes = [dt]
+        ctx.insert(med); ctx.insert(dt)
+
+        let draft = EditableDraft(editing: med, calendar: cal)
+        let editNow = cal.date(from: DateComponents(year: 2026, month: 6, day: 17, hour: 14))!
+        let rebuilt = draft.doseTimes(now: editNow, calendar: cal)
+
+        XCTAssertEqual(rebuilt.count, 1)
+        XCTAssertEqual(rebuilt.first?.intervalDays, 3, "the interval itself round-trips")
+        XCTAssertEqual(rebuilt.first?.anchorDate, anchor,
+                       "editing must not re-anchor the every-N-days cycle to the edit day")
+    }
+
+    /// Regression guard for the untouched path: a BRAND-NEW every-N-days draft (no prior rule) still
+    /// anchors at the creation day — preserving the anchor is edit-only behavior.
+    func testNewEveryNDaysDraftAnchorsAtCreationDay() {
+        let cal = utc
+        let draft = EditableDraft.empty(calendar: cal)
+        draft.repeatMode = .everyNDays
+        draft.intervalDays = 2
+        let now = cal.date(from: DateComponents(year: 2026, month: 6, day: 17, hour: 14))!
+        let rebuilt = draft.doseTimes(now: now, calendar: cal)
+        XCTAssertEqual(rebuilt.first?.anchorDate, cal.startOfDay(for: now),
+                       "a new every-N-days schedule anchors at the day it was created")
     }
 }

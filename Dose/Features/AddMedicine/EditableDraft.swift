@@ -52,6 +52,10 @@ final class EditableDraft: Identifiable {
     var repeatMode: RepeatMode
     var weekdays: Set<Int>       // Calendar weekday numbers (1 = Sunday) — repeatMode == .weekdays
     var intervalDays: Int        // repeatMode == .everyNDays (>= 2)
+    /// The every-N-days cycle start carried over from the rule being edited. Nil for a new schedule
+    /// (or a mode switch), which anchors at the creation day — but an EDIT must keep the original
+    /// anchor, or saving an unrelated change (name, icon…) silently phase-shifts the dosing cycle.
+    var anchorDate: Date?
     var daysOfMonth: Set<Int>    // 1...31 — repeatMode == .daysOfMonth
 
     // Extras (icon/colour, treatment duration, instructions) — edited in the post-save/extras editor.
@@ -84,6 +88,7 @@ final class EditableDraft: Identifiable {
         repeatMode: RepeatMode = .everyday,
         weekdays: Set<Int> = [],
         intervalDays: Int = 2,
+        anchorDate: Date? = nil,
         daysOfMonth: Set<Int> = [],
         iconName: String? = nil,
         colorHex: String? = nil,
@@ -105,6 +110,7 @@ final class EditableDraft: Identifiable {
         self.repeatMode = repeatMode
         self.weekdays = weekdays
         self.intervalDays = intervalDays
+        self.anchorDate = anchorDate
         self.daysOfMonth = daysOfMonth
         self.iconName = iconName
         self.colorHex = colorHex
@@ -166,10 +172,11 @@ final class EditableDraft: Identifiable {
         var mode: RepeatMode = .everyday
         var weekdays: Set<Int> = []
         var interval = 2
+        var anchor: Date?
         var daysOfMonth: Set<Int> = []
         if let first = doseTimes.first {
             if !first.daysOfMonth.isEmpty { mode = .daysOfMonth; daysOfMonth = Set(first.daysOfMonth) }
-            else if first.intervalDays >= 2 { mode = .everyNDays; interval = first.intervalDays }
+            else if first.intervalDays >= 2 { mode = .everyNDays; interval = first.intervalDays; anchor = first.anchorDate }
             else if !first.weekdays.isEmpty { mode = .weekdays; weekdays = Set(first.weekdays) }
         }
 
@@ -182,6 +189,7 @@ final class EditableDraft: Identifiable {
             repeatMode: mode,
             weekdays: weekdays,
             intervalDays: interval,
+            anchorDate: anchor,
             daysOfMonth: daysOfMonth,
             iconName: medicine.iconName,
             colorHex: medicine.colorHex,
@@ -228,8 +236,11 @@ final class EditableDraft: Identifiable {
             case .weekdays:
                 return DoseTime(hour: hour, minute: minute, weekdays: weekdays.sorted())
             case .everyNDays:
+                // Keep the cycle's original anchor when editing; only a genuinely new schedule
+                // starts its cycle today.
                 return DoseTime(hour: hour, minute: minute,
-                                intervalDays: max(2, intervalDays), anchorDate: calendar.startOfDay(for: now))
+                                intervalDays: max(2, intervalDays),
+                                anchorDate: anchorDate ?? calendar.startOfDay(for: now))
             case .daysOfMonth:
                 return DoseTime(hour: hour, minute: minute, daysOfMonth: daysOfMonth.sorted())
             }
