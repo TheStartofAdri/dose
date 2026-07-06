@@ -31,7 +31,9 @@ enum DoseActionWriter {
         do {
             try context.save()
         } catch {
-            logger.error("Failed to persist \(action.rawValue, privacy: .public) for \(medicineName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            // Correlate by ID, never by name: a medication name is health data, and `.public` would
+            // write it unredacted into the unified log (readable in Console.app / sysdiagnoses).
+            logger.error("Failed to persist \(action.rawValue, privacy: .public) for medicine \(medicineID.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         return log
     }
