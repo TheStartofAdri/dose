@@ -71,9 +71,29 @@ final class NotificationScheduler {
         NotificationStatus.shared.update(from: plan)
 
         center.removeAllPendingNotificationRequests()
+        for reminder in plan.snoozes { addSnoozeRebuild(reminder, now: now) }
         for reminder in plan.onTime { addOnTime(reminder) }
         for reminder in plan.escalations { add(reminder, now: now) }
         for reminder in plan.leadTime { add(reminder, now: now) }
+    }
+
+    /// Re-arms a snooze the planner reconstructed from the log after the wipe above — same content and
+    /// deterministic id as `scheduleSnooze`, but at the REMAINING interval instead of a fresh 10 min.
+    private func addSnoozeRebuild(_ reminder: WindowedReminder, now: Date) {
+        let interval = reminder.fireDate.timeIntervalSince(now)
+        guard interval > 0 else { return }
+        let content = Self.makeContent(
+            name: reminder.medicineName, dosage: reminder.dosage,
+            userInfo: [
+                "medicineID": reminder.medicineID.uuidString,
+                "medicineName": reminder.medicineName,
+                "dosage": reminder.dosage as Any,
+                "scheduledFor": Int(reminder.scheduledFor.timeIntervalSince1970),
+                "kind": "snooze",
+            ]
+        )
+        submit(UNNotificationRequest(identifier: reminder.id, content: content,
+                                     trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)))
     }
 
     // MARK: - Translating reminders to requests

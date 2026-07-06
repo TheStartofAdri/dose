@@ -168,6 +168,39 @@ final class NotificationCancellationTests: XCTestCase {
         XCTAssertTrue(logs.isEmpty, "no .snoozed log for a not-yet-due dose")
     }
 
+    // MARK: - A pending snooze must survive reschedule's wipe-and-replace
+
+    /// THE bug: `reschedule` wipes ALL pending requests, and a "Remind in 10 min" one-shot existed
+    /// ONLY in the notification center — the planner rebuilt on-time/escalation/lead-time but never
+    /// snoozes. So opening the app (or a background refresh, or editing any medicine) silently
+    /// destroyed the promised reminder while Today kept showing "snoozed until…". The plan must
+    /// re-arm the snooze from the slot's latest `.snoozed` log.
+    func testRescheduleRebuildsPendingSnoozeFromLog() throws {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        let slot = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8))!
+        let snoozedAt = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8, minute: 2))!
+        let now = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8, minute: 5))!
+
+        let schema = DoseStore.currentSchema
+        let container = try ModelContainer(for: schema,
+                                           configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let ctx = ModelContext(container)
+        let med = Medicine(name: "Aspirin", trustState: .confirmed)
+        let dt = DoseTime(hour: 8, minute: 0)
+        med.doseTimes = [dt]
+        ctx.insert(med); ctx.insert(dt)
+        let log = DoseLog(medicineID: med.id, medicineName: "Aspirin", scheduledFor: slot,
+                          action: .snoozed, actionedAt: snoozedAt)
+        ctx.insert(log)
+
+        let scheduled = captureScheduled {
+            NotificationScheduler.shared.reschedule(medicines: [med], logs: [log],
+                                                    escalationEnabled: false, now: now)
+        }
+        XCTAssertTrue(scheduled.contains(NotificationPlanner.snoozeID(med.id, slot)),
+                      "a reschedule re-arms the pending snooze instead of silently destroying it")
+    }
+
     /// The Today take/skip path calls exactly `cancelSlot(medicineID:scheduledFor:)`; confirm it also
     /// removes the slot's snooze (the same mechanism the notification path uses).
     func testTodayPathCancelSlotRemovesTheSnooze() {

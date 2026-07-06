@@ -130,6 +130,70 @@ final class NotificationBudgetTests: XCTestCase {
         XCTAssertTrue(p.escalations.isEmpty)
     }
 
+    // MARK: - Snooze survival: the plan re-arms pending snoozes from the log
+
+    /// A slot whose latest log is `.snoozed` (with the 10-min window still open) is re-armed by the
+    /// plan with the SAME deterministic id and the REMAINING fire time — this is what makes a snooze
+    /// survive reschedule's wipe-and-replace instead of being silently destroyed.
+    func testPlanRebuildsSnoozeFromLatestSnoozedLog() {
+        let med = MedicineSnapshot(id: UUID(), name: "Med", dosage: nil,
+                                   rules: [DoseSlotRule(hour: 8, minute: 0)])
+        let slot = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8))!
+        let localNow = slot.addingTimeInterval(5 * 60)                       // 08:05
+        let snoozed = DoseLogSnapshot(medicineID: med.id, scheduledFor: slot,
+                                      action: .snoozed, actionedAt: slot.addingTimeInterval(120)) // 08:02
+        let p = NotificationPlanner.plan(medicines: [med], logs: [snoozed], now: localNow,
+                                         escalationEnabled: false, calendar: cal)
+        XCTAssertEqual(p.snoozes.map(\.id), [NotificationPlanner.snoozeID(med.id, slot)])
+        XCTAssertEqual(p.snoozes.first?.fireDate,
+                       snoozed.actionedAt.addingTimeInterval(NotificationPlanner.escalationDelay),
+                       "re-armed at the REMAINING time (08:12), not a fresh 10 minutes")
+    }
+
+    /// A take/skip after the snooze settles the slot — the latest log is no longer `.snoozed`, so
+    /// nothing re-arms (same latest-log rule the engine's status uses).
+    func testSnoozedThenTakenSlotDoesNotRebuildSnooze() {
+        let med = MedicineSnapshot(id: UUID(), name: "Med", dosage: nil,
+                                   rules: [DoseSlotRule(hour: 8, minute: 0)])
+        let slot = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8))!
+        let logs = [
+            DoseLogSnapshot(medicineID: med.id, scheduledFor: slot, action: .snoozed,
+                            actionedAt: slot.addingTimeInterval(120)),
+            DoseLogSnapshot(medicineID: med.id, scheduledFor: slot, action: .taken,
+                            actionedAt: slot.addingTimeInterval(180)),
+        ]
+        let p = NotificationPlanner.plan(medicines: [med], logs: logs, now: slot.addingTimeInterval(5 * 60),
+                                         escalationEnabled: false, calendar: cal)
+        XCTAssertTrue(p.snoozes.isEmpty, "a settled slot never re-arms its snooze")
+    }
+
+    /// An elapsed snooze window (fire time already past) has nothing left to deliver.
+    func testElapsedSnoozeIsNotRebuilt() {
+        let med = MedicineSnapshot(id: UUID(), name: "Med", dosage: nil,
+                                   rules: [DoseSlotRule(hour: 8, minute: 0)])
+        let slot = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8))!
+        let snoozed = DoseLogSnapshot(medicineID: med.id, scheduledFor: slot,
+                                      action: .snoozed, actionedAt: slot.addingTimeInterval(120))
+        let p = NotificationPlanner.plan(medicines: [med], logs: [snoozed],
+                                         now: slot.addingTimeInterval(20 * 60),   // 08:20 > 08:12 fire
+                                         escalationEnabled: false, calendar: cal)
+        XCTAssertTrue(p.snoozes.isEmpty)
+    }
+
+    /// A snooze for a medicine that is no longer in the plan input (archived/deleted) dies with the
+    /// wipe — it must not be resurrected from its orphaned log.
+    func testSnoozeForRemovedMedicineIsNotRebuilt() {
+        let med = MedicineSnapshot(id: UUID(), name: "Med", dosage: nil,
+                                   rules: [DoseSlotRule(hour: 8, minute: 0)])
+        let slot = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8))!
+        let snoozed = DoseLogSnapshot(medicineID: UUID(),   // some other (removed) medicine's log
+                                      scheduledFor: slot, action: .snoozed,
+                                      actionedAt: slot.addingTimeInterval(120))
+        let p = NotificationPlanner.plan(medicines: [med], logs: [snoozed], now: slot.addingTimeInterval(5 * 60),
+                                         escalationEnabled: false, calendar: cal)
+        XCTAssertTrue(p.snoozes.isEmpty)
+    }
+
     func testEscalationFiresTenMinutesAfterOccurrence() {
         let p = plan(dailyMeds(1), escalation: true)
         let esc = try! XCTUnwrap(p.escalations.sorted { $0.fireDate < $1.fireDate }.first)

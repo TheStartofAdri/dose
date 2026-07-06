@@ -26,14 +26,20 @@ struct NotificationPlan: Sendable {
     let onTime: [WindowedReminder]
     let escalations: [WindowedReminder]
     let leadTime: [WindowedReminder]
+    /// Pending "Remind in 10 min" one-shots rebuilt from the log. A snooze exists ONLY in the
+    /// notification center, and `reschedule` wipes every pending request — so unless the plan re-arms
+    /// it, any reschedule (app foreground, background refresh, editing any medicine) silently destroys
+    /// the promised reminder while Today keeps showing "snoozed until…". Imminent by construction
+    /// (≤ 10 min out), so they claim budget ahead of on-time.
+    let snoozes: [WindowedReminder]
     /// True only when ON-TIME reminders alone exceed the budget and had to be trimmed (the soonest
     /// survive; farther occurrences are picked up by the next refill). On-time is NEVER dropped in
     /// favour of escalations or lead-time.
     let baseTruncated: Bool
 
     /// Every reminder, in priority order — what the scheduler submits.
-    var windowed: [WindowedReminder] { onTime + escalations + leadTime }
-    var total: Int { onTime.count + escalations.count + leadTime.count }
+    var windowed: [WindowedReminder] { snoozes + onTime + escalations + leadTime }
+    var total: Int { snoozes.count + onTime.count + escalations.count + leadTime.count }
 }
 
 /// Pure planner for the local-notification schedule. Every dose occurrence in the horizon becomes a
@@ -116,15 +122,39 @@ enum NotificationPlanner {
             }
         }
 
-        // Budget — priority order preserved. On-time gets FIRST claim and trims soonest-first, so the
-        // nearest doses are always covered and on-time is never sacrificed for escalation/lead-time.
+        // Re-arm pending snoozes from the log. The slot's LATEST log decides (the same rule as
+        // `ExecutionEngine.status`), so what re-arms here is exactly what the UI shows as snoozed;
+        // a later take/skip makes the latest log non-snoozed and nothing re-arms. Meds not in the
+        // plan input (archived/deleted) correctly lose their snoozes with the wipe.
+        var snoozes: [WindowedReminder] = []
+        var snoozeSeen = Set<String>()
+        let medByID = Dictionary(medicines.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for entry in logs where entry.action == .snoozed {
+            let id = snoozeID(entry.medicineID, entry.scheduledFor)
+            guard !snoozeSeen.contains(id), let med = medByID[entry.medicineID] else { continue }
+            guard let latest = ExecutionEngine.latestLog(medicineID: entry.medicineID,
+                                                         scheduledFor: entry.scheduledFor, in: logs),
+                  latest.action == .snoozed else { continue }
+            let fire = latest.actionedAt.addingTimeInterval(escalationDelay)
+            guard fire > now else { continue }   // the snooze window already elapsed — nothing to re-arm
+            snoozeSeen.insert(id)
+            snoozes.append(WindowedReminder(id: id, medicineID: med.id, medicineName: med.name,
+                                            dosage: med.dosage, fireDate: fire,
+                                            scheduledFor: entry.scheduledFor, isEscalation: false))
+        }
+        snoozes = Array(snoozes.sorted { $0.fireDate < $1.fireDate }.prefix(budget))
+
+        // Budget — priority order preserved. Snoozes (imminent, few) claim first, then on-time trims
+        // soonest-first, so the nearest doses are always covered and on-time is never sacrificed for
+        // escalation/lead-time.
         var baseTruncated = false
         onTime.sort { $0.fireDate < $1.fireDate }
-        if onTime.count > budget {
-            onTime = Array(onTime.prefix(budget))
+        let onTimeBudget = max(0, budget - snoozes.count)
+        if onTime.count > onTimeBudget {
+            onTime = Array(onTime.prefix(onTimeBudget))
             baseTruncated = true
         }
-        var remaining = max(0, budget - onTime.count)
+        var remaining = max(0, onTimeBudget - onTime.count)
 
         // Escalations next, soonest-first (gets nothing when on-time filled the budget → remaining 0).
         let chosenEscalations = remaining > 0
@@ -138,7 +168,7 @@ enum NotificationPlanner {
             : []
 
         return NotificationPlan(onTime: onTime, escalations: chosenEscalations,
-                                leadTime: chosenLeadtime, baseTruncated: baseTruncated)
+                                leadTime: chosenLeadtime, snoozes: snoozes, baseTruncated: baseTruncated)
     }
 
     // MARK: - Identifiers (deterministic per occurrence, so one slot can be removed without others)
