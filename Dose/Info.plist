@@ -25,7 +25,9 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
-	<string>3</string>
+	<string>4</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Dose reads medication labels you scan to fill in medicine details. Your medication list stays on your device.</string>
 	<key>SupabaseAnonKey</key>
