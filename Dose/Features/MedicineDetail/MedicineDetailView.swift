@@ -20,6 +20,18 @@ struct MedicineDetailView: View {
     @ObservedObject private var subscription = SubscriptionStore.shared   // re-render on entitlement change
 
     var body: some View {
+        // A permanent delete invalidates `medicine` while this view is still mid-pop: dismiss() only
+        // STARTS the animation, and the delete's save re-fires `allLogs`/observation during it —
+        // rendering an invalidated @Model (navigationTitle reads `medicine.name`) is a SwiftData
+        // fatal error. Render nothing for the remaining frames instead.
+        if medicine.isDeleted {
+            Color.clear
+        } else {
+            detailBody
+        }
+    }
+
+    private var detailBody: some View {
         TimelineView(.periodic(from: .now, by: 300)) { timeline in
             content(now: timeline.date)
         }

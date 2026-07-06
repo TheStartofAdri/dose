@@ -272,6 +272,31 @@ final class TodayCardUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Undo Skipped for Ibuprofen"].exists)
     }
 
+    // Deleting from the DETAIL screen must survive the pop: dismiss() only STARTS the animation while
+    // the delete's save re-renders the view with an invalidated @Model (SwiftData fatal-error class).
+    // Locks the previously-uncovered delete-from-detail flow end to end.
+    func testDeleteFromDetailReturnsToTodaySafely() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipAuth", "-uiTestReset"]
+        app.launch()
+        addMedicine(app, name: "Ibuprofen")
+
+        app.staticTexts["Ibuprofen"].tap()                        // card tap → detail (item 6 wiring)
+        let manage = app.buttons["Manage medicine"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 5), "the detail screen opened")
+        manage.tap()
+        app.buttons["Delete permanently"].tap()
+        let confirm = app.buttons["Delete Ibuprofen"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "the delete confirmation appeared")
+        confirm.tap()
+
+        // Back on Today (the add button is reachable again), the medicine is gone, the app is alive.
+        XCTAssertTrue(app.buttons["Add medicine"].firstMatch.waitForExistence(timeout: 5),
+                      "the pop landed back on Today without crashing")
+        XCTAssertFalse(app.staticTexts["Ibuprofen"].exists, "the deleted medicine left Today")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     // Item 2 — undo an accidental Take.
     func testUndoRevertsATake() {
         let app = XCUIApplication()
