@@ -75,6 +75,23 @@ final class NotificationScheduler {
         for reminder in plan.onTime { addOnTime(reminder) }
         for reminder in plan.escalations { add(reminder, now: now) }
         for reminder in plan.leadTime { add(reminder, now: now) }
+        if let fire = plan.sentinelFireDate { addRefillSentinel(fire: fire, now: now) }
+    }
+
+    /// The coverage-end sentinel: a plain notification — no dose category (no Take/Skip buttons) and
+    /// no medicineID, so the action handler ignores it and a tap just opens the app, which is the
+    /// refresh. Fires only if the user hasn't opened the app (and background refresh hasn't run)
+    /// before the scheduled one-shots run out.
+    private func addRefillSentinel(fire: Date, now: Date) {
+        let content = UNMutableNotificationContent()
+        content.title = "Your reminders need a refresh"
+        content.body = "Open Dose to keep your medication reminders coming."
+        content.sound = SettingsKeys.soundEnabled_default ? .default : nil
+        content.userInfo = ["kind": "refill"]
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, fire.timeIntervalSince(now)),
+                                                        repeats: false)
+        submit(UNNotificationRequest(identifier: NotificationPlanner.refillSentinelID,
+                                     content: content, trigger: trigger))
     }
 
     /// Re-arms a snooze the planner reconstructed from the log after the wipe above — same content and

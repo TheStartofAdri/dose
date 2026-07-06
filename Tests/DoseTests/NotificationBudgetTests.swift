@@ -96,38 +96,80 @@ final class NotificationBudgetTests: XCTestCase {
     }
 
     func testOnTimeGetsFirstClaimThenEscalationThenLeadTime() {
-        // One daily med, escalation on, 10-min lead, tight budget = onTime(7) + 3 leftover.
+        // One ongoing daily med, escalation on, 10-min lead, tight budget = sentinel(1, reserved for
+        // the ongoing schedule) + onTime(7) + 2 leftover.
         let med = MedicineSnapshot(id: UUID(), name: "M", dosage: nil,
                                    rules: [DoseSlotRule(hour: 8, minute: 0)], leadTimeMinutes: 10)
         let p = plan([med], escalation: true, budget: 10)
         let onCount = expectedDailyOccurrences(hour: 8).count
         XCTAssertEqual(p.onTime.count, onCount, "every on-time reminder is kept (first claim)")
-        XCTAssertEqual(p.escalations.count, 10 - onCount, "escalations take the leftover, soonest-first")
+        XCTAssertEqual(p.escalations.count, 10 - onCount - 1, "escalations take the leftover, soonest-first")
         XCTAssertTrue(p.leadTime.isEmpty, "lead-time is lowest — nothing left for it")
+        XCTAssertNotNil(p.sentinelFireDate, "ongoing schedule → coverage-end sentinel reserved")
         XCTAssertEqual(p.total, 10)
     }
 
     func testOnTimeTruncatedSoonestFirstWhenOverBudget() {
         let p = plan(dailyMeds(1, hour: 8), escalation: true, budget: 3)
-        XCTAssertEqual(p.onTime.count, 3, "on-time trimmed to the budget")
+        XCTAssertEqual(p.onTime.count, 2, "on-time trimmed to the budget minus the reserved sentinel")
         XCTAssertTrue(p.baseTruncated)
         XCTAssertTrue(p.escalations.isEmpty, "no budget left → on-time is never sacrificed for escalation")
         XCTAssertTrue(p.leadTime.isEmpty)
-        // The THREE soonest occurrences survive.
-        XCTAssertEqual(p.onTime.map { $0.scheduledFor }, Array(expectedDailyOccurrences(hour: 8).prefix(3)))
+        // The soonest occurrences survive; the sentinel fires when the first UNcovered dose is due.
+        XCTAssertEqual(p.onTime.map { $0.scheduledFor }, Array(expectedDailyOccurrences(hour: 8).prefix(2)))
+        XCTAssertEqual(p.sentinelFireDate, expectedDailyOccurrences(hour: 8)[2])
+        XCTAssertEqual(p.total, 3)
     }
 
     func testManyMedsTruncateOnTimeAndFlagIt() {
         let p = plan(dailyMeds(20), escalation: true)   // 20 × ~7 = ~140 on-time > 64
-        XCTAssertEqual(p.onTime.count, NotificationPlanner.maxPending)
+        XCTAssertEqual(p.onTime.count, NotificationPlanner.maxPending - 1, "one slot reserved for the sentinel")
         XCTAssertTrue(p.baseTruncated)
         XCTAssertTrue(p.escalations.isEmpty)
         XCTAssertTrue(p.leadTime.isEmpty)
+        XCTAssertNotNil(p.sentinelFireDate)
+        XCTAssertEqual(p.total, NotificationPlanner.maxPending)
     }
 
     func testEscalationDisabledMeansNoEscalations() {
         let p = plan(dailyMeds(2), escalation: false)
         XCTAssertTrue(p.escalations.isEmpty)
+    }
+
+    // MARK: - Refill sentinel: coverage must never run out silently
+
+    /// An ongoing medicine always has doses beyond the horizon — the plan carries one sentinel firing
+    /// exactly when coverage ends, so a user who never opens the app (and whose background refresh
+    /// doesn't run) gets an "open Dose" nudge instead of total reminder silence.
+    func testOngoingMedicineArmsSentinelAtHorizonEnd() {
+        let p = plan(dailyMeds(1))
+        XCTAssertEqual(p.sentinelFireDate, now.addingTimeInterval(NotificationPlanner.defaultWindow),
+                       "coverage runs out at the horizon → sentinel fires there")
+    }
+
+    /// A course that ends inside the window is FULLY covered — no doses beyond coverage, no sentinel.
+    func testBoundedCourseWithinWindowArmsNoSentinel() {
+        let med = MedicineSnapshot(id: UUID(), name: "Course", dosage: nil,
+                                   rules: [DoseSlotRule(hour: 8, minute: 0)],
+                                   createdAt: cal.startOfDay(for: now),
+                                   endDate: cal.date(byAdding: .day, value: 3, to: now)!)
+        XCTAssertNil(plan([med]).sentinelFireDate)
+    }
+
+    func testNoMedicinesNoSentinel() {
+        XCTAssertNil(plan([]).sentinelFireDate)
+    }
+
+    /// Heavy load: the sentinel survives truncation (reserved slot) and fires no later than the first
+    /// dropped occurrence — the moment reminders would have gone silent.
+    func testTruncatedPlanSentinelFiresWhenFirstUncoveredDoseIsDue() {
+        let p = plan(dailyMeds(20))   // ~140 candidates ≫ 64
+        XCTAssertTrue(p.baseTruncated)
+        let sentinel = try! XCTUnwrap(p.sentinelFireDate)
+        XCTAssertGreaterThanOrEqual(sentinel, p.onTime.last!.fireDate, "fires after the last covered dose")
+        XCTAssertLessThan(sentinel, now.addingTimeInterval(NotificationPlanner.defaultWindow),
+                          "…but before the horizon: right when the first UNcovered dose is due")
+        XCTAssertLessThanOrEqual(p.total, NotificationPlanner.maxPending)
     }
 
     // MARK: - Snooze survival: the plan re-arms pending snoozes from the log
@@ -243,10 +285,13 @@ final class NotificationBudgetTests: XCTestCase {
         let meds = dailyMeds(5).map {
             MedicineSnapshot(id: $0.id, name: $0.name, dosage: $0.dosage, rules: $0.rules, leadTimeMinutes: 15)
         }
-        // 5 × 7 = 35 on-time. Budget 35 → on-time exactly fills it, lead-time gets nothing.
+        // 5 × 7 = 35 on-time. Budget 35 → sentinel reserved (ongoing schedules) + 34 on-time fill it;
+        // lead-time gets nothing.
         let p = plan(meds, budget: 35)
-        XCTAssertEqual(p.onTime.count, 35)
+        XCTAssertEqual(p.onTime.count, 34)
+        XCTAssertNotNil(p.sentinelFireDate)
         XCTAssertTrue(p.leadTime.isEmpty, "no budget left → lead-time dropped, never on-time")
+        XCTAssertEqual(p.total, 35)
     }
 
     func testNoLeadTimeProducesNoLeadReminders() {

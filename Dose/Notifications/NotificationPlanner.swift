@@ -32,6 +32,13 @@ struct NotificationPlan: Sendable {
     /// the promised reminder while Today keeps showing "snoozed until…". Imminent by construction
     /// (≤ 10 min out), so they claim budget ahead of on-time.
     let snoozes: [WindowedReminder]
+    /// When doses exist BEYOND this plan's coverage (past the horizon, or past the truncation point
+    /// when the 64-cap trims), one "open Dose to refresh" sentinel fires at the moment coverage runs
+    /// out. One-shots are refilled only by app-opens and discretionary background refresh — without
+    /// this, a user who does neither gets total reminder silence with no signal (the in-app
+    /// truncation banner is invisible to someone not opening the app). `nil` = everything the
+    /// schedule will ever need is already covered (e.g. a course ending inside the window).
+    let sentinelFireDate: Date?
     /// True only when ON-TIME reminders alone exceed the budget and had to be trimmed (the soonest
     /// survive; farther occurrences are picked up by the next refill). On-time is NEVER dropped in
     /// favour of escalations or lead-time.
@@ -39,7 +46,9 @@ struct NotificationPlan: Sendable {
 
     /// Every reminder, in priority order — what the scheduler submits.
     var windowed: [WindowedReminder] { snoozes + onTime + escalations + leadTime }
-    var total: Int { snoozes.count + onTime.count + escalations.count + leadTime.count }
+    var total: Int {
+        snoozes.count + onTime.count + escalations.count + leadTime.count + (sentinelFireDate == nil ? 0 : 1)
+    }
 }
 
 /// Pure planner for the local-notification schedule. Every dose occurrence in the horizon becomes a
@@ -69,14 +78,17 @@ enum NotificationPlanner {
         var escSeen = Set<String>();    var escalations: [WindowedReminder] = []
         var leadSeen = Set<String>();   var leadtime: [WindowedReminder] = []
 
+        var hasBeyondWindow = false
         for medicine in medicines {
             // A finite course caps its window at the inclusive end day; an ongoing med uses the full
             // horizon. Once `now` is past the end day there are zero occurrences.
-            let medEnd: Date = {
-                guard let endDate = medicine.endDate else { return end }
-                let endOfDay = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: endDate) ?? endDate
-                return min(end, endOfDay)
-            }()
+            let scheduleEnd: Date? = medicine.endDate.map {
+                calendar.date(bySettingHour: 23, minute: 59, second: 59, of: $0) ?? $0
+            }
+            let medEnd = scheduleEnd.map { min(end, $0) } ?? end
+            // An ongoing med (or a course outlasting the horizon) has doses BEYOND what this plan
+            // can cover — the sentinel below must warn when coverage runs out.
+            if !medicine.rules.isEmpty, scheduleEnd.map({ $0 > end }) ?? true { hasBeyondWindow = true }
 
             for rule in medicine.rules {
                 for occ in occurrences(of: rule, from: now, to: medEnd, calendar: calendar) {
@@ -149,10 +161,18 @@ enum NotificationPlanner {
         // escalation/lead-time.
         var baseTruncated = false
         onTime.sort { $0.fireDate < $1.fireDate }
-        let onTimeBudget = max(0, budget - snoozes.count)
+        // The refill sentinel needs a GUARANTEED slot whenever doses exist beyond this plan's
+        // coverage — reserved before trimming, so the fully-loaded case (the one that needs the
+        // warning most) can't squeeze it out.
+        let needsSentinel = hasBeyondWindow || onTime.count > max(0, budget - snoozes.count)
+        let onTimeBudget = max(0, budget - snoozes.count - (needsSentinel ? 1 : 0))
+        var sentinelFireDate: Date?
         if onTime.count > onTimeBudget {
+            sentinelFireDate = onTime[onTimeBudget].fireDate   // when the first UNcovered dose is due
             onTime = Array(onTime.prefix(onTimeBudget))
             baseTruncated = true
+        } else if needsSentinel {
+            sentinelFireDate = end                             // coverage runs out at the horizon
         }
         var remaining = max(0, onTimeBudget - onTime.count)
 
@@ -168,7 +188,8 @@ enum NotificationPlanner {
             : []
 
         return NotificationPlan(onTime: onTime, escalations: chosenEscalations,
-                                leadTime: chosenLeadtime, snoozes: snoozes, baseTruncated: baseTruncated)
+                                leadTime: chosenLeadtime, snoozes: snoozes,
+                                sentinelFireDate: sentinelFireDate, baseTruncated: baseTruncated)
     }
 
     // MARK: - Identifiers (deterministic per occurrence, so one slot can be removed without others)
@@ -191,6 +212,10 @@ enum NotificationPlanner {
     static func snoozeID(_ medicineID: UUID, _ scheduledFor: Date) -> String {
         "snooze.\(medicineID.uuidString).\(Int(scheduledFor.timeIntervalSince1970))"
     }
+
+    /// The single coverage-end sentinel (`NotificationPlan.sentinelFireDate`) — one per plan, replaced
+    /// wholesale by every reschedule, never matched by `slotIDs`/`cancelSlot`.
+    static let refillSentinelID = "refill.sentinel"
 
     /// Every reminder id for one dose occurrence — removed together when the dose is taken/skipped so
     /// NO further prompt (on-time, escalation, lead-time, OR a pending snooze) fires for that slot.

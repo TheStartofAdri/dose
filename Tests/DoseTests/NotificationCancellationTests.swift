@@ -201,6 +201,30 @@ final class NotificationCancellationTests: XCTestCase {
                       "a reschedule re-arms the pending snooze instead of silently destroying it")
     }
 
+    // MARK: - Refill sentinel: reminders must never run out silently
+
+    /// THE gap: one-shots cover ~7 days (less when the 64-cap truncates), refilled only by app-opens
+    /// or discretionary background refresh. If neither happens, reminders just STOP — total silence on
+    /// a medication app, and the in-app truncation banner is invisible to someone not opening the app.
+    /// Whenever doses exist beyond the plan's coverage, the reschedule must arm one "open Dose to
+    /// refresh" sentinel at the moment coverage runs out.
+    func testRescheduleArmsRefillSentinelForOngoingMedicine() throws {
+        let schema = DoseStore.currentSchema
+        let container = try ModelContainer(for: schema,
+                                           configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let ctx = ModelContext(container)
+        let med = Medicine(name: "Aspirin", trustState: .confirmed)   // ongoing daily med
+        let dt = DoseTime(hour: 8, minute: 0)
+        med.doseTimes = [dt]
+        ctx.insert(med); ctx.insert(dt)
+
+        let scheduled = captureScheduled {
+            NotificationScheduler.shared.reschedule(medicines: [med], logs: [], escalationEnabled: false)
+        }
+        XCTAssertTrue(scheduled.contains("refill.sentinel"),
+                      "an ongoing schedule arms a coverage-end sentinel so reminders can't run out silently")
+    }
+
     /// The Today take/skip path calls exactly `cancelSlot(medicineID:scheduledFor:)`; confirm it also
     /// removes the slot's snooze (the same mechanism the notification path uses).
     func testTodayPathCancelSlotRemovesTheSnooze() {
