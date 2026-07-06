@@ -1,0 +1,9 @@
+# Declarative Supabase config — checked in so security-relevant settings are a property of the
+# repo, not of whoever last ran the CLI.
+project_id = "dose"
+
+# The parse endpoint must always require a valid JWT (the app sends the anon key). Without this
+# line, verification rests on a deploy-time CLI default — one `--no-verify-jwt` deploy (or a CLI
+# default change) would silently open the endpoint to fully anonymous calls.
+[functions.parse-medication]
+verify_jwt = true

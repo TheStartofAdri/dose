@@ -50,16 +50,15 @@ const SCHEMA = {
   },
 };
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+// Deliberately NO CORS headers: the only legitimate client is the native app, and URLSession
+// ignores CORS entirely. Granting `Access-Control-Allow-Origin: *` would let any web page script
+// calls against the endpoint (with the extractable anon key) — one less lever for cost abuse.
+// OPTIONS still gets a 200 (the app's reachability probe sends one and reads only the status).
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
   });
 }
 
@@ -75,7 +74,7 @@ function withRequiresReview(m: any) {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "OPTIONS") return new Response("ok");
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -95,6 +94,17 @@ Deno.serve(async (req: Request) => {
     return json({
       error: "invalid_request",
       detail: "Provide inputType ('text' | 'scan') and the matching text field (inputText | ocrText).",
+    }, 400);
+  }
+
+  // Size cap: a single label/description never needs more than a few KB. Uncapped input both blows
+  // past model limits on dense package-insert scans (opaque 502s) and is the main cost lever for
+  // scripted abuse of the endpoint.
+  const MAX_INPUT_CHARS = 20_000;
+  if (text.length > MAX_INPUT_CHARS) {
+    return json({
+      error: "too_long",
+      detail: `Input is ${text.length} characters (limit ${MAX_INPUT_CHARS}). Try scanning just the label area with the name and directions.`,
     }, 400);
   }
 
