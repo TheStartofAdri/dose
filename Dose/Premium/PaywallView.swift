@@ -139,10 +139,11 @@ struct PaywallView: View {
     /// not resolved yet; `.purchasable` = products are loaded.
     enum PurchaseState: Equatable { case loading, unavailable, purchasable }
 
-    /// Pure, testable decision (no view state — same shape as `RootView.entryRoute`). Readiness gates
-    /// first, so a not-yet-resolved store is never mistaken for "unavailable".
-    static func purchaseState(isReady: Bool, hasProducts: Bool) -> PurchaseState {
-        guard isReady else { return .loading }
+    /// Pure, testable decision (no view state — same shape as `RootView.entryRoute`). Gated on the
+    /// PRODUCT fetch having finished (not on `isReady`, which now resolves earlier from local
+    /// entitlements), so a still-loading fetch is never mistaken for "unavailable".
+    static func purchaseState(productsResolved: Bool, hasProducts: Bool) -> PurchaseState {
+        guard productsResolved else { return .loading }
         return hasProducts ? .purchasable : .unavailable
     }
 
@@ -150,7 +151,7 @@ struct PaywallView: View {
     /// load finished empty. `.loading`/`.purchasable` both render the CTA, so behavior is unchanged:
     /// `productsUnavailable` shows exactly when `isReady && products.isEmpty`, the CTA otherwise.
     @ViewBuilder private var purchaseSection: some View {
-        switch Self.purchaseState(isReady: store.isReady, hasProducts: !store.products.isEmpty) {
+        switch Self.purchaseState(productsResolved: store.productsResolved, hasProducts: !store.products.isEmpty) {
         case .unavailable: productsUnavailable
         case .loading, .purchasable: cta
         }

@@ -34,8 +34,11 @@ final class SubscriptionStore: ObservableObject {
     /// entering the app and getting reminders; only the premium extras lock.
     @Published private(set) var hasEverSubscribed: Bool = false
     /// The first entitlement check has completed — gates the entry paywall so it never flashes before
-    /// StoreKit has loaded.
+    /// StoreKit has loaded. Deliberately does NOT wait for the product fetch (see `start()`).
     @Published private(set) var isReady: Bool = false
+    /// The first product fetch has FINISHED (success or failure) — gates the paywall's "unavailable"
+    /// state so a still-loading store is never mistaken for "no products".
+    @Published private(set) var productsResolved: Bool = false
     @Published private(set) var products: [Product] = []
     @Published var lastError: String?
 
@@ -68,10 +71,16 @@ final class SubscriptionStore: ObservableObject {
                 await self?.refresh()
             }
         }
-        Task { await loadProducts(); await refresh(); isReady = true }
+        // Entitlements resolve from the LOCAL StoreKit cache in milliseconds (even offline); the
+        // product fetch is a network call that can take seconds or fail outright. Route on
+        // entitlements first, so a returning subscriber on a flaky network reaches the app instantly
+        // instead of staring at the launch placeholder — and an offline first launch reaches the
+        // paywall's retry state rather than a dead placeholder. Products load lazily for the paywall.
+        Task { await refresh(); isReady = true; await loadProducts() }
     }
 
     func loadProducts() async {
+        defer { productsResolved = true }
         do { products = try await Product.products(for: Self.productIDs).sorted { $0.price < $1.price } }
         catch { lastError = error.localizedDescription }
     }
@@ -129,6 +138,7 @@ final class SubscriptionStore: ObservableObject {
         isPremium = value
         hasEverSubscribed = true   // a forced session is past the entry gate
         isReady = true
+        productsResolved = true    // forced sessions never fetch — don't leave the paywall "loading"
     }
     #endif
 }
