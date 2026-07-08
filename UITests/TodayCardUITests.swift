@@ -272,6 +272,43 @@ final class TodayCardUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Undo Skipped for Ibuprofen"].exists)
     }
 
+    // Deleting a dose-time row while adding a medicine must not crash. The rows previously used array-
+    // index identity + index-subscript bindings, which fault ("Index out of range") when a middle row
+    // is removed and its torn-down DatePicker re-reads a now-out-of-bounds index. Stable ids + a by-id
+    // binding fix it; this locks the flow (best-effort: the original crash was intermittent).
+    func testDeletingAMiddleDoseTimeRowDoesNotCrash() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipAuth", "-uiTestReset"]
+        app.launch()
+
+        app.buttons["Add medicine"].firstMatch.tap()
+        let manual = app.staticTexts["Manual entry"]
+        XCTAssertTrue(manual.waitForExistence(timeout: 5)); manual.tap()
+        let field = app.textFields["Name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("Ibuprofen")
+
+        // Three dose-time rows: Dose 1 (default) + two added.
+        let addTime = app.buttons["Add time"]
+        XCTAssertTrue(addTime.waitForExistence(timeout: 5))
+        addTime.tap(); addTime.tap()
+        XCTAssertTrue(app.staticTexts["Dose 3"].waitForExistence(timeout: 5), "three time rows exist")
+
+        // Swipe-delete the MIDDLE row — the case that crashed with index identity.
+        app.staticTexts["Dose 2"].swipeLeft()
+        let delete = app.buttons["Delete"]
+        if delete.waitForExistence(timeout: 3) { delete.tap() }
+
+        // The app is alive, a row was removed, and Save still works end to end.
+        XCTAssertEqual(app.state, .runningForeground, "deleting a time row must not crash")
+        XCTAssertFalse(app.staticTexts["Dose 3"].exists, "one row was removed")
+        app.buttons["manualSave"].tap()
+        let skip = app.buttons["Skip"]
+        if skip.waitForExistence(timeout: 5) { skip.tap() }
+        XCTAssertTrue(app.staticTexts["Ibuprofen"].waitForExistence(timeout: 5),
+                      "the medicine still saves after a mid-list time deletion")
+    }
+
     // Deleting from the DETAIL screen must survive the pop: dismiss() only STARTS the animation while
     // the delete's save re-renders the view with an invalidated @Model (SwiftData fatal-error class).
     // Locks the previously-uncovered delete-from-detail flow end to end.

@@ -87,6 +87,19 @@ struct ManualEntryView: View {
 struct DraftScheduleEditor: View {
     @Bindable var draft: EditableDraft
 
+    /// A dose-time binding keyed by row id, not array index: the getter/setter look the row up each
+    /// time and no-op if it was deleted, so a row torn down mid-delete can never fault on a stale index.
+    private func timeBinding(for id: UUID) -> Binding<Date> {
+        Binding(
+            get: { draft.timedDoses.first(where: { $0.id == id })?.time ?? .now },
+            set: { newValue in
+                if let i = draft.timedDoses.firstIndex(where: { $0.id == id }) {
+                    draft.timedDoses[i].time = newValue
+                }
+            }
+        )
+    }
+
     var body: some View {
         Section {
             // A flagged (inferred / low-confidence) schedule WARNS and blocks Confirm until the user
@@ -107,17 +120,19 @@ struct DraftScheduleEditor: View {
                 Label("Reviewed", systemImage: "checkmark.circle.fill")
                     .font(.caption).foregroundStyle(.green)
             }
-            ForEach(Array(draft.times.enumerated()), id: \.offset) { index, _ in
+            // Stable per-row identity + a by-id binding (never an index subscript), so deleting a row
+            // can't leave a torn-down DatePicker reading an out-of-bounds element and crashing.
+            ForEach(Array(draft.timedDoses.enumerated()), id: \.element.id) { index, dose in
                 DatePicker("Dose \(index + 1)",
-                           selection: $draft.times[index],
+                           selection: timeBinding(for: dose.id),
                            displayedComponents: .hourAndMinute)
             }
             .onDelete { offsets in
-                draft.times.remove(atOffsets: offsets)
-                if draft.times.isEmpty { draft.times = [.now] }
+                draft.timedDoses.remove(atOffsets: offsets)
+                if draft.timedDoses.isEmpty { draft.timedDoses = [TimedDose(time: .now)] }
             }
             Button {
-                draft.times.append(draft.times.last ?? .now)
+                draft.timedDoses.append(TimedDose(time: draft.timedDoses.last?.time ?? .now))
             } label: {
                 Label("Add time", systemImage: "plus")
             }

@@ -1,6 +1,15 @@
 import Foundation
 import SwiftUI
 
+/// One editable dose time carrying a STABLE identity. The schedule editor binds and deletes rows by
+/// this `id`, not by array index — index identity plus index-subscript bindings crash with "Index
+/// out of range" when a row is removed (the torn-down row re-reads its now-out-of-bounds binding).
+struct TimedDose: Identifiable, Equatable {
+    let id: UUID
+    var time: Date
+    init(id: UUID = UUID(), time: Date) { self.id = id; self.time = time }
+}
+
 /// Editable, reference-type state behind the review/confirm gate. Built from a `DraftMedication`
 /// (AI/scan) or from scratch (manual), edited in the UI, then mapped to a confirmed `Medicine`.
 @Observable
@@ -47,7 +56,11 @@ final class EditableDraft: Identifiable {
     var dosage: String
     var form: String
     var quantity: String
-    var times: [Date]            // only hour/minute are meaningful
+    /// Dose times as identified rows (only hour/minute are meaningful). Stored with stable ids so the
+    /// editor's ForEach/bindings survive deletion; `times` is the plain `[Date]` view every other
+    /// consumer (mapping, tests) reads.
+    var timedDoses: [TimedDose]
+    var times: [Date] { timedDoses.map(\.time) }
 
     var repeatMode: RepeatMode
     var weekdays: Set<Int>       // Calendar weekday numbers (1 = Sunday) — repeatMode == .weekdays
@@ -106,7 +119,7 @@ final class EditableDraft: Identifiable {
         self.dosage = dosage
         self.form = form
         self.quantity = quantity
-        self.times = times
+        self.timedDoses = times.map { TimedDose(time: $0) }
         self.repeatMode = repeatMode
         self.weekdays = weekdays
         self.intervalDays = intervalDays
