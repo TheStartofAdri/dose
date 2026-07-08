@@ -96,7 +96,12 @@ struct ScanLabelView: View {
         errorMessage = nil
         Task {
             do {
-                let ocr = try LabelTextRecognizer.recognize(in: cgImage)
+                // Vision's `.accurate` recognition is synchronous and slow (~0.5–3s). Run it OFF the
+                // main actor so the "Reading label…" spinner keeps animating and the scanner-dismiss
+                // animation doesn't hitch; state writes below stay on the main actor.
+                let ocr = try await Task.detached(priority: .userInitiated) {
+                    try LabelTextRecognizer.recognize(in: cgImage)
+                }.value
                 let parsed = try await parser.parse(.scan(ocrText: ocr.text))
                 drafts = parsed.map { EditableDraft(from: $0, source: .scan) }
                 isReading = false
