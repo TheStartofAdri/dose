@@ -200,7 +200,8 @@ final class NotificationScheduler {
     /// to the dose `scheduledFor` it postpones via a DETERMINISTIC id, so taking/skipping that dose later
     /// cancels it (`cancelSlot` → `slotIDs` includes the snooze). `scheduledFor` carries the original
     /// occurrence, so a Take from the snooze records the right dose. Still a 10-min one-shot.
-    func scheduleSnooze(medicineID: UUID, medicineName: String, dosage: String?, scheduledFor: Date) {
+    func scheduleSnooze(medicineID: UUID, medicineName: String, dosage: String?, scheduledFor: Date,
+                        minutes: Int? = nil) {
         let content = Self.makeContent(
             name: medicineName, dosage: dosage,
             userInfo: [
@@ -211,7 +212,9 @@ final class NotificationScheduler {
                 "kind": "snooze",
             ]
         )
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: NotificationPlanner.escalationDelay, repeats: false)
+        // A chosen snooze length (action sheet) or the default 10 min (notification quick-action).
+        let interval = minutes.map { TimeInterval($0 * 60) } ?? NotificationPlanner.escalationDelay
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
         submit(UNNotificationRequest(identifier: NotificationPlanner.snoozeID(medicineID, scheduledFor),
                                      content: content, trigger: trigger))
     }

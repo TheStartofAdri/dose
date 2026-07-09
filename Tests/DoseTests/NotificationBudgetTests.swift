@@ -192,6 +192,21 @@ final class NotificationBudgetTests: XCTestCase {
                        "re-armed at the REMAINING time (08:12), not a fresh 10 minutes")
     }
 
+    /// A VARIABLE snooze (snoozeMinutes chosen in the action sheet) re-arms at that interval, not the
+    /// default 10 min. FAIL-BEFORE: the planner ignored snoozeMinutes and always used escalationDelay.
+    func testPlanRebuildsVariableSnoozeAtChosenMinutes() {
+        let med = MedicineSnapshot(id: UUID(), name: "Med", dosage: nil,
+                                   rules: [DoseSlotRule(hour: 8, minute: 0)])
+        let slot = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8))!
+        let snoozedAt = slot.addingTimeInterval(120)     // snoozed 08:02 for 30 min → fire 08:32
+        let snoozed = DoseLogSnapshot(medicineID: med.id, scheduledFor: slot, action: .snoozed,
+                                      actionedAt: snoozedAt, snoozeMinutes: 30)
+        let p = NotificationPlanner.plan(medicines: [med], logs: [snoozed], now: slot.addingTimeInterval(5 * 60),
+                                         escalationEnabled: false, calendar: cal)
+        XCTAssertEqual(p.snoozes.first?.fireDate, snoozedAt.addingTimeInterval(30 * 60),
+                       "re-armed at the chosen 30 min (08:32), not the default 10 min")
+    }
+
     /// A take/skip after the snooze settles the slot — the latest log is no longer `.snoozed`, so
     /// nothing re-arms (same latest-log rule the engine's status uses).
     func testSnoozedThenTakenSlotDoesNotRebuildSnooze() {

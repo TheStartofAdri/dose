@@ -147,7 +147,9 @@ enum NotificationPlanner {
             guard let latest = ExecutionEngine.latestLog(medicineID: entry.medicineID,
                                                          scheduledFor: entry.scheduledFor, in: logs),
                   latest.action == .snoozed else { continue }
-            let fire = latest.actionedAt.addingTimeInterval(escalationDelay)
+            // Honor a variable snooze length chosen in the in-app action sheet; default 10 min.
+            let snoozeDelay = latest.snoozeMinutes.map { TimeInterval($0 * 60) } ?? escalationDelay
+            let fire = latest.actionedAt.addingTimeInterval(snoozeDelay)
             guard fire > now else { continue }   // the snooze window already elapsed — nothing to re-arm
             snoozeSeen.insert(id)
             snoozes.append(WindowedReminder(id: id, medicineID: med.id, medicineName: med.name,
