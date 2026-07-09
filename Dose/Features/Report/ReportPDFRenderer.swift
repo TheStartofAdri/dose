@@ -37,11 +37,11 @@ enum ReportPDFRenderer {
             }
 
             func color(for day: DayAdherence) -> UIColor {
-                if day.taken == 0 && day.skipped == 0 && day.missed == 0 { return .systemGray5 }   // none scheduled
-                if day.missed > 0 && day.taken > 0 { return .systemOrange }                         // partial
-                if day.missed > 0 { return .systemRed }
-                if day.taken > 0 { return .systemGreen }
-                return .systemGray                                                                  // skipped only
+                if day.taken == 0 && day.skipped == 0 && day.missed == 0 { return DoseColors.UI.none }   // none scheduled
+                if day.missed > 0 && day.taken > 0 { return DoseColors.UI.due }                          // partial
+                if day.missed > 0 { return DoseColors.UI.missed }
+                if day.taken > 0 { return DoseColors.UI.taken }
+                return DoseColors.UI.neutralSolid                                                        // skipped only
             }
 
             func drawStrip(_ days: [DayAdherence]) {
@@ -65,8 +65,8 @@ enum ReportPDFRenderer {
             func drawLegend() {
                 ensure(18)
                 let items: [(UIColor, String)] = [
-                    (.systemGreen, "Taken"), (.systemGray, "Skipped"),
-                    (.systemRed, "Missed"), (.systemOrange, "Partial"), (.systemGray5, "None"),
+                    (DoseColors.UI.taken, "Taken"), (DoseColors.UI.neutralSolid, "Skipped"),
+                    (DoseColors.UI.missed, "Missed"), (DoseColors.UI.due, "Partial"), (DoseColors.UI.none, "None"),
                 ]
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: UIFont.systemFont(ofSize: 9), .foregroundColor: UIColor.secondaryLabel,

@@ -4,13 +4,14 @@ import SwiftUI
 /// amber = due, red = missed, neutral = upcoming/skipped, blue = snoozed.
 enum DoseTheme {
     static func color(for status: DoseStatus) -> Color {
+        // Routes through the single `DoseColors` palette (redesign v1) — behaviour-preserving.
         switch status {
-        case .upcoming: .secondary
-        case .due:      .orange
-        case .missed:   .red
-        case .taken:    .green
-        case .skipped:  .secondary
-        case .snoozed:  .blue
+        case .upcoming: DoseColors.neutral
+        case .due:      DoseColors.due
+        case .missed:   DoseColors.missed
+        case .taken:    DoseColors.taken
+        case .skipped:  DoseColors.neutral
+        case .snoozed:  DoseColors.snoozed
         }
     }
 

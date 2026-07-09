@@ -219,11 +219,11 @@ struct AdherenceChartCard: View {
                 }
             }
             .chartForegroundStyleScale([
-                "Taken": Color.green,
+                "Taken": DoseColors.taken,
                 // A solid, clearly-visible gray — distinct from the faint neutral tick used for
                 // empty days. Skips are shown but never scored (neutral for the % and streak).
-                "Skipped": Color(.systemGray),
-                "Missed": Color.red,
+                "Skipped": DoseColors.neutralSolid,
+                "Missed": DoseColors.missed,
             ])
             .chartXScale(domain: domain)
             .chartYScale(domain: 0...Double(maxCount))
