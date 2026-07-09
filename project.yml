@@ -14,7 +14,7 @@ settings:
     # Keep these in lockstep with CFBundleShortVersionString/CFBundleVersion below — the plist
     # literals are what ships; these make tooling (agvtool, Organizer, fastlane) agree with it.
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "4"
+    CURRENT_PROJECT_VERSION: "5"
     # Signing lives here (not in Xcode) because the .xcodeproj is gitignored and regenerated —
     # anything set in the Xcode UI is wiped by the next `xcodegen generate`.
     DEVELOPMENT_TEAM: 758ZN76DM2
@@ -80,7 +80,7 @@ targets:
         # Build number — MUST strictly increase for EVERY TestFlight/App Store upload (App Store Connect
         # rejects a duplicate version+build). Increment this (4 → 5 → 6 …) AND CURRENT_PROJECT_VERSION
         # above before each archive/upload.
-        CFBundleVersion: "4"
+        CFBundleVersion: "5"
         # HTTPS-only networking (exempt) — auto-answers the App Store Connect export-compliance question.
         ITSAppUsesNonExemptEncryption: false
         # actool on this toolchain emits only the nested CFBundleIcons entry, not the top-level
