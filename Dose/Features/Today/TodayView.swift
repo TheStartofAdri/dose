@@ -62,6 +62,20 @@ struct TodayView: View {
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                 }
+                // "Next up" hero: the soonest un-acted dose, with a prominent Take + 10-min Snooze.
+                if let nextUp = doses.first(where: { !$0.status.isSettled }) {
+                    NextUpCard(
+                        dose: nextUp,
+                        onTake: { record(.taken, for: nextUp) },
+                        onSnooze: { record(.snoozed, for: nextUp) },
+                        onOpenDetail: { if let medicine = medicine(for: nextUp) { detailMedicine = medicine } }
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                }
+                SectionHeader("Today's schedule")
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 4)
                 List {
                     ForEach(doses) { dose in
                         DoseCardView(

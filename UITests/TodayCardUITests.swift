@@ -30,8 +30,12 @@ final class TodayCardUITests: XCTestCase {
         app.launch()
         addMedicine(app, name: "Ibuprofen")
 
-        let nameLabel = app.staticTexts["Ibuprofen"]
-        let take = app.buttons["Take Ibuprofen"]
+        // Scope to the schedule ROW cell — the "Next up" hero above the list also shows the name and a
+        // Take (labelled "… now"), so a bare query would match the hero, not the row under test.
+        let row = app.cells.containing(.staticText, identifier: "Ibuprofen").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "the schedule row exists")
+        let nameLabel = row.staticTexts["Ibuprofen"]
+        let take = row.buttons["Take Ibuprofen"]
         XCTAssertTrue(nameLabel.exists && nameLabel.isHittable, "the name must be visible/hittable")
         XCTAssertTrue(take.exists && take.isHittable, "the Take control must be present")
 
@@ -42,6 +46,23 @@ final class TodayCardUITests: XCTestCase {
         XCTAssertLessThan(take.frame.width, 110, "the Take control must stay compact, not grow wide")
         XCTAssertGreaterThan(nameLabel.frame.width, take.frame.width,
                              "the name gets priority width over the Take control")
+    }
+
+    // The "Next up" hero surfaces the soonest un-acted dose with its OWN Take ("… now", distinct from
+    // the per-row Take), and clears once nothing is due.
+    func testNextUpHeroTakesTheNextDose() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipAuth", "-uiTestReset"]
+        app.launch()
+        addMedicine(app, name: "Ibuprofen")
+
+        let heroTake = app.buttons["Take Ibuprofen now"]
+        XCTAssertTrue(heroTake.waitForExistence(timeout: 5), "the Next up hero offers a Take for the soonest dose")
+        heroTake.tap()
+        // Taking via the hero settles the only dose → the schedule row shows Undo and the hero clears.
+        XCTAssertTrue(app.buttons["Undo Taken for Ibuprofen"].waitForExistence(timeout: 5),
+                      "taking via the hero settles the dose")
+        XCTAssertFalse(app.buttons["Take Ibuprofen now"].exists, "the hero clears once nothing is due")
     }
 
     // Regression guard for the REAL card in the NAME-LEADING layout: the name leads beside the icon (where
@@ -127,7 +148,10 @@ final class TodayCardUITests: XCTestCase {
         app.launchArguments = ["-skipAuth", "-seedCardLayoutDemo", "-forceDynamicType", "accessibility3"]
         app.launch()
 
-        let name = app.staticTexts["Aspirin"]
+        // Scope the name to the schedule ROW — the "Next up" hero above the list also shows it.
+        let row = app.cells.containing(.staticText, identifier: "Aspirin").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the schedule row is visible")
+        let name = row.staticTexts["Aspirin"]
         let take = app.buttons["Take Aspirin"]
         let instructions = app.staticTexts["Take before breakfast"]
         XCTAssertTrue(name.waitForExistence(timeout: 10), "the name is visible at a large accessibility size")
@@ -257,8 +281,10 @@ final class TodayCardUITests: XCTestCase {
         app.launch()
         addMedicine(app, name: "Ibuprofen")
 
-        // Swipe-left reveals "Skip today".
-        app.staticTexts["Ibuprofen"].swipeLeft()
+        // Swipe-left the schedule ROW reveals "Skip today" (the hero above the list isn't swipeable).
+        let row = app.cells.containing(.staticText, identifier: "Ibuprofen").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.swipeLeft()
         app.buttons["Skip today"].tap()
 
         // The card settles to skipped and offers Undo.
@@ -318,7 +344,8 @@ final class TodayCardUITests: XCTestCase {
         app.launch()
         addMedicine(app, name: "Ibuprofen")
 
-        app.staticTexts["Ibuprofen"].tap()                        // card tap → detail (item 6 wiring)
+        // Tap the schedule ROW's name (the hero also shows the name above the list).
+        app.cells.containing(.staticText, identifier: "Ibuprofen").firstMatch.staticTexts["Ibuprofen"].tap()
         let manage = app.buttons["Manage medicine"]
         XCTAssertTrue(manage.waitForExistence(timeout: 5), "the detail screen opened")
         manage.tap()
@@ -359,7 +386,8 @@ final class TodayCardUITests: XCTestCase {
         app.launch()
         addMedicine(app, name: "Ibuprofen")
 
-        app.staticTexts["Ibuprofen"].tap()   // tap the card body (not the Take/⋯ controls)
+        // Tap the schedule ROW's name (not the hero above it) → card body → detail.
+        app.cells.containing(.staticText, identifier: "Ibuprofen").firstMatch.staticTexts["Ibuprofen"].tap()
         XCTAssertTrue(app.staticTexts["Schedule"].waitForExistence(timeout: 5),
                       "the medicine detail screen (with a Schedule section) should open")
         XCTAssertTrue(app.staticTexts["Adherence"].exists, "detail shows this medicine's own history")

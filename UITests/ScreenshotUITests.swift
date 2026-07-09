@@ -51,9 +51,10 @@ final class ScreenshotUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-skipAuth", "-seedHistoryDemo"]
         app.launch()
-        let card = app.staticTexts["Vitamin D"]
-        XCTAssertTrue(card.waitForExistence(timeout: 10))
-        card.tap()
+        // Tap the schedule ROW (the "Next up" hero above the list can also show this name).
+        let row = app.cells.containing(.staticText, identifier: "Vitamin D").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.staticTexts["Vitamin D"].tap()
         XCTAssertTrue(app.staticTexts["Schedule"].waitForExistence(timeout: 5))
         attach("03-medicine-detail")
     }
@@ -71,9 +72,10 @@ final class ScreenshotUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-skipAuth", "-seedHistoryDemo"]
         app.launch()
-        let card = app.staticTexts["Vitamin D"]   // seeded with an icon, colour, and instructions
-        XCTAssertTrue(card.waitForExistence(timeout: 10))
-        card.tap()
+        // Tap the schedule ROW (the "Next up" hero above the list can also show this name).
+        let row = app.cells.containing(.staticText, identifier: "Vitamin D").firstMatch   // seeded with icon, colour, instructions
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.staticTexts["Vitamin D"].tap()
         XCTAssertTrue(app.staticTexts["Instructions"].waitForExistence(timeout: 5))
         attach("05-detail-icon-instructions")
     }
@@ -185,8 +187,9 @@ final class ScreenshotUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-skipAuth", "-seedHistoryDemo"]
         app.launch()
-        let card = app.staticTexts["Vitamin D"]
-        XCTAssertTrue(card.waitForExistence(timeout: 10)); card.tap()
+        // Tap the schedule ROW (the "Next up" hero above the list can also show this name).
+        let row = app.cells.containing(.staticText, identifier: "Vitamin D").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10)); row.staticTexts["Vitamin D"].tap()
         XCTAssertTrue(app.staticTexts["Schedule"].waitForExistence(timeout: 5))
         // Scroll fully to the bottom (the chart is the last section) so the whole card — title through
         // legend — sits above the translucent tab bar, proving it's not clipped within its own row.
