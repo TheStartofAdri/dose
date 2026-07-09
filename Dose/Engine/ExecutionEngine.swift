@@ -135,6 +135,14 @@ struct ScheduledSlot: Identifiable, Sendable, Hashable {
 
 enum ExecutionEngine {
     /// How long after the scheduled time a dose stays `.due` before it becomes `.missed`.
+    ///
+    /// GRACE IS A TODAY-ONLY, STILL-TAKEABLE AFFORDANCE — not a claim that the dose isn't missed. A dose
+    /// within grace renders on Today with ALERT styling (red time / "Overdue"), never as neutral/upcoming.
+    /// The adherence engine (`AdherenceCalculator.dayAdherence`/`missedEvents`) and the PDF deliberately
+    /// apply NO grace — a past-due dose trends missed the moment its time passes — so analytics stay
+    /// clinically honest and historical/PDF numbers are correct (product decision "Option 2", 2026-07-09).
+    /// Today and analytics are therefore consistent in MEANING ("overdue, take now" vs "trending missed"),
+    /// not identical in wording; that difference is intentional. Do not add grace to the adherence path.
     static let defaultGrace: TimeInterval = 60 * 60      // 60 minutes
     /// How long a snooze pushes the effective due time.
     static let snoozeInterval: TimeInterval = 10 * 60    // 10 minutes
