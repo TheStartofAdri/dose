@@ -79,6 +79,17 @@ struct DoseLogSnapshot: Sendable, Hashable {
     let scheduledFor: Date
     let action: DoseAction
     let actionedAt: Date
+    /// For a `.snoozed` log, the chosen snooze length in minutes (nil = the default 10-min snooze).
+    /// Drives BOTH the in-app snoozed-until (`status`) and the re-armed notification (the planner).
+    let snoozeMinutes: Int?
+
+    init(medicineID: UUID, scheduledFor: Date, action: DoseAction, actionedAt: Date, snoozeMinutes: Int? = nil) {
+        self.medicineID = medicineID
+        self.scheduledFor = scheduledFor
+        self.action = action
+        self.actionedAt = actionedAt
+        self.snoozeMinutes = snoozeMinutes
+    }
 }
 
 // MARK: - Derived UI status
@@ -215,7 +226,9 @@ enum ExecutionEngine {
         case .skipped:
             return (.skipped, nil)
         case .snoozed:
-            let until = latest.actionedAt.addingTimeInterval(snoozeInterval)
+            // Honor a variable snooze length (from the in-app action sheet); default 10 min.
+            let interval = latest.snoozeMinutes.map { TimeInterval($0 * 60) } ?? snoozeInterval
+            let until = latest.actionedAt.addingTimeInterval(interval)
             if now < until { return (.snoozed, until) }
             // Snooze elapsed with no further action → re-evaluate against the snoozed time.
             return (unactioned(due: until, now: now, grace: grace, canBeMissed: canBeMissed), nil)
@@ -267,7 +280,8 @@ extension Medicine {
 
 extension DoseLog {
     func snapshot() -> DoseLogSnapshot {
-        DoseLogSnapshot(medicineID: medicineID, scheduledFor: scheduledFor, action: action, actionedAt: actionedAt)
+        DoseLogSnapshot(medicineID: medicineID, scheduledFor: scheduledFor, action: action,
+                        actionedAt: actionedAt, snoozeMinutes: snoozeMinutes)
     }
 }
 

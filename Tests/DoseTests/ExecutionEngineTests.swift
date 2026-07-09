@@ -77,6 +77,21 @@ final class ExecutionEngineTests: XCTestCase {
         XCTAssertEqual(single(date(2026, 6, 16, 9, 30), logs: [log]).status, .missed)
     }
 
+    /// A variable snooze (from the in-app action sheet) keeps the dose snoozed for the CHOSEN length,
+    /// not the default 10 min. FAIL-BEFORE: with snoozeMinutes ignored, a 30-min snooze would elapse at
+    /// +10 and read `.due` at +20; PASS-AFTER: it stays snoozed to actionedAt + 30 min.
+    func testVariableSnoozeHonorsChosenMinutes() {
+        let snoozedAt = date(2026, 6, 16, 8, 5)
+        let log = DoseLogSnapshot(medicineID: medID, scheduledFor: date(2026, 6, 16, 8, 0),
+                                  action: .snoozed, actionedAt: snoozedAt, snoozeMinutes: 30)
+        // +20 min (08:25): a default 10-min snooze would have elapsed, but a 30-min one is still snoozed.
+        let dose = single(date(2026, 6, 16, 8, 25), logs: [log])
+        XCTAssertEqual(dose.status, .snoozed, "a 30-min snooze is still snoozed at +20 min")
+        XCTAssertEqual(dose.snoozedUntil, snoozedAt.addingTimeInterval(30 * 60), "snoozed-until is actionedAt + 30 min")
+        // 08:40: past the chosen 30 min (08:35) but within grace of it → due.
+        XCTAssertEqual(single(date(2026, 6, 16, 8, 40), logs: [log]).status, .due)
+    }
+
     func testLatestLogWinsTakenAfterSnooze() {
         let scheduled = date(2026, 6, 16, 8, 0)
         let logs = [

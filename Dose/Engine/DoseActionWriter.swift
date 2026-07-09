@@ -21,10 +21,11 @@ enum DoseActionWriter {
         medicineName: String,
         dosage: String?,
         scheduledFor: Date,
+        snoozeMinutes: Int? = nil,
         into context: ModelContext
     ) -> DoseLog {
         let log = DoseLog(medicineID: medicineID, medicineName: medicineName, dosage: dosage,
-                          scheduledFor: scheduledFor, action: action)
+                          scheduledFor: scheduledFor, action: action, snoozeMinutes: snoozeMinutes)
         context.insert(log)
         // Capture (don't swallow) the error: this runs on the lock-screen/background action path where
         // a silent failure would mean a tapped Take/Skip never persisted, invisibly.
