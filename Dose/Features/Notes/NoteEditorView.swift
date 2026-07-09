@@ -16,6 +16,7 @@ struct NoteEditorView: View {
     private let parser: MedicationParser = MedicationParserFactory.make()
 
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var photosLoading = 0
     @State private var isAnalyzing = false
     @State private var errorMessage: String?
     @State private var drafts: [EditableDraft] = []
@@ -116,12 +117,20 @@ struct NoteEditorView: View {
 
     /// Persist the note on exit, or remove it if the user left it blank (notes are inserted up front
     /// when "+" is tapped, so an empty-and-back shouldn't leave a stray row). Never analyzes.
+    /// A note is discarded on exit only when it's truly empty — no text AND no tags/medicine/photos AND
+    /// no photo load still in flight. A pending load must NOT be mistaken for "empty": it appends its
+    /// `NotePhoto` asynchronously, so discarding here would delete the note out from under that append
+    /// (silent photo loss / a write to a deleted model). Pure + static so it's unit-testable.
+    static func shouldDiscard(trimmedText: String, hasTags: Bool, hasMedicine: Bool,
+                              hasPhotos: Bool, photosLoading: Bool) -> Bool {
+        trimmedText.isEmpty && !hasTags && !hasMedicine && !hasPhotos && !photosLoading
+    }
+
     private func saveOrDiscard() {
-        // Keep the note if it has ANY content — text, tags, a linked medicine, or photos. Only a truly
-        // empty note (inserted on "+", then abandoned) is discarded, so a photo/tag-only note survives.
-        let hasExtras = !note.tags.isEmpty || note.medicineID != nil || !note.photos.isEmpty
-        if trimmed.isEmpty && !hasExtras {
-            context.delete(note)
+        if Self.shouldDiscard(trimmedText: trimmed, hasTags: !note.tags.isEmpty,
+                              hasMedicine: note.medicineID != nil, hasPhotos: !note.photos.isEmpty,
+                              photosLoading: photosLoading > 0) {
+            context.delete(note)            // truly-empty, no load pending → discard
         } else if note.text != trimmed {
             note.text = trimmed             // trim surrounding whitespace on save
         }
@@ -130,14 +139,16 @@ struct NoteEditorView: View {
 
     private func loadPhotos(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
-        Task {
+        photosLoading += 1                       // block discard-on-exit until this load resolves
+        Task { @MainActor in                     // model-context writes stay on the main actor
+            defer { photosLoading -= 1; photoItems = [] }
             for item in items {
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    note.photos.append(NotePhoto(imageData: data))
+                guard !note.isDeleted else { break }   // the note can be torn down mid-load — never
+                if let data = try? await item.loadTransferable(type: Data.self), !note.isDeleted {
+                    note.photos.append(NotePhoto(imageData: data))   // append to / save a deleted model
                 }
             }
-            photoItems = []
-            try? context.save()
+            if !note.isDeleted { try? context.save() }
         }
     }
 
