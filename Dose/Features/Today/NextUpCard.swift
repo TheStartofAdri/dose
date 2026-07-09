@@ -63,7 +63,7 @@ struct NextUpCard: View {
                 .accessibilityLabel("Take \(dose.medicineName) now")
 
                 Button(action: onSnooze) {
-                    Text("Snooze 10m")
+                    Text("Snooze")
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, DoseSpacing.lg)
                         .padding(.vertical, DoseSpacing.md)
@@ -71,7 +71,7 @@ struct NextUpCard: View {
                         .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Snooze \(dose.medicineName) ten minutes")
+                .accessibilityLabel("Snooze \(dose.medicineName)")
             }
         }
         .doseCardStyle()

@@ -65,6 +65,24 @@ final class TodayCardUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Take Ibuprofen now"].exists, "the hero clears once nothing is due")
     }
 
+    // The dose action sheet (opened from the hero's Snooze) offers snooze presets; picking one snoozes
+    // the dose for that length.
+    func testActionSheetSnoozePresetSnoozesTheDose() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipAuth", "-uiTestReset"]
+        app.launch()
+        addMedicine(app, name: "Ibuprofen")
+
+        app.buttons["Snooze Ibuprofen"].tap()          // hero Snooze → action sheet
+        let preset = app.buttons["30m"]
+        XCTAssertTrue(preset.waitForExistence(timeout: 5), "the action sheet offers snooze presets")
+        preset.tap()
+
+        // The dose now reads as snoozed — its schedule row shows a "Snoozed · <time>" status.
+        let snoozed = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Snoozed")).firstMatch
+        XCTAssertTrue(snoozed.waitForExistence(timeout: 5), "choosing a preset snoozes the dose")
+    }
+
     // Regression guard for the REAL card in the NAME-LEADING layout: the name leads beside the icon (where
     // the big time used to be) with the dose stacked directly under it; the small time sits at the top-right
     // with the Take/⋯ controls below it; the instruction caption and status chip are on full-width rows at

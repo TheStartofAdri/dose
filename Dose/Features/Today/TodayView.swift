@@ -14,6 +14,7 @@ struct TodayView: View {
     @State private var archiving: Medicine?
     @State private var deleting: Medicine?
     @State private var detailMedicine: Medicine?
+    @State private var actionSheetDose: TodayDose?
 
     var body: some View {
         NavigationStack {
@@ -33,6 +34,14 @@ struct TodayView: View {
             }
             .navigationDestination(isPresented: detailBinding) {
                 if let medicine = detailMedicine { MedicineDetailView(medicine: medicine) }
+            }
+            .sheet(item: $actionSheetDose) { dose in
+                DoseActionSheet(
+                    dose: dose,
+                    onTake: { record(.taken, for: dose) },
+                    onSkip: { record(.skipped, for: dose) },
+                    onSnooze: { minutes in record(.snoozed, for: dose, minutes: minutes) }
+                )
             }
         }
     }
@@ -55,7 +64,7 @@ struct TodayView: View {
                     NextUpCard(
                         dose: nextUp,
                         onTake: { record(.taken, for: nextUp) },
-                        onSnooze: { record(.snoozed, for: nextUp) },
+                        onSnooze: { actionSheetDose = nextUp },
                         onOpenDetail: { if let medicine = medicine(for: nextUp) { detailMedicine = medicine } }
                     )
                     .padding(.horizontal, 16)
@@ -149,10 +158,12 @@ struct TodayView: View {
 
     // MARK: - Actions
 
-    private func record(_ action: DoseAction, for dose: TodayDose) {
+    private func record(_ action: DoseAction, for dose: TodayDose, minutes: Int? = nil) {
+        let snoozeMinutes = action == .snoozed ? (minutes ?? 10) : nil
         // `context` is the injected main (observed) context, so the @Query updates live.
         DoseActionWriter.record(action, medicineID: dose.medicineID, medicineName: dose.medicineName,
-                                dosage: dose.dosage, scheduledFor: dose.scheduledFor, into: context)
+                                dosage: dose.dosage, scheduledFor: dose.scheduledFor,
+                                snoozeMinutes: snoozeMinutes, into: context)
 
         switch action {
         case .taken:
@@ -166,7 +177,7 @@ struct TodayView: View {
             NotificationScheduler.shared.cancelSlot(medicineID: dose.medicineID, scheduledFor: dose.scheduledFor)
             NotificationScheduler.shared.scheduleSnooze(
                 medicineID: dose.medicineID, medicineName: dose.medicineName, dosage: dose.dosage,
-                scheduledFor: dose.scheduledFor)
+                scheduledFor: dose.scheduledFor, minutes: snoozeMinutes)
         }
     }
 
