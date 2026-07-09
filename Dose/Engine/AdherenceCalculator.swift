@@ -74,6 +74,15 @@ enum AdherenceCalculator {
     /// its slot precedes `createdAt` or no current rule reconstructs it (a real action is never
     /// invisible). Only the *missed* branch is schedule-reconstructed and floored to `[createdAt,
     /// endDate]` (so there are no phantom misses before a med existed or after a course ended).
+    /// The instant after which an unresolved slot counts as missed: the slot time normally, or the
+    /// snooze-until (`actionedAt + snoozeMinutes`, default 10 min) while a snooze is still pending — so an
+    /// in-window snooze is deferred (neither taken nor missed), matching `ExecutionEngine.status`. No grace.
+    private static func missedCutoff(slot: Date, latest: DoseLogSnapshot?) -> Date {
+        guard let latest, latest.action == .snoozed else { return slot }
+        let interval = latest.snoozeMinutes.map { TimeInterval($0 * 60) } ?? ExecutionEngine.snoozeInterval
+        return latest.actionedAt.addingTimeInterval(interval)
+    }
+
     private static func dayAdherence(
         on day: Date, medicines: [MedicineSnapshot], logs: [DoseLogSnapshot], now: Date, calendar: Calendar
     ) -> DayAdherence {
@@ -89,18 +98,21 @@ enum AdherenceCalculator {
                 // a take-then-skip (user corrected themselves) reads Skipped on BOTH screens instead
                 // of Skipped on Today but taken in History. Resolved actions stay log-driven (no
                 // lifetime floor); a lone snooze resolves nothing.
-                switch ExecutionEngine.latestLog(medicineID: medicine.id, scheduledFor: slot, in: logs)?.action {
+                let latest = ExecutionEngine.latestLog(medicineID: medicine.id, scheduledFor: slot, in: logs)
+                switch latest?.action {
                 case .taken:
                     taken += 1; accountedSlots.append(slot)        // resolved → always counts (no floor)
                 case .skipped:
                     skipped += 1; accountedSlots.append(slot)      // neutral, but still displayed
                 case .snoozed, nil:
-                    if now > slot && ExecutionEngine.isWithinLifetime(
+                    // Missed once past the cutoff — the slot time, or the snooze-until while a snooze is
+                    // still pending, so an in-window snooze is neither taken nor missed (matches Today).
+                    if now > missedCutoff(slot: slot, latest: latest) && ExecutionEngine.isWithinLifetime(
                         scheduledFor: slot, createdAt: medicine.createdAt,
                         endDate: medicine.endDate, calendar: calendar) {
                         missed += 1                                // unfulfilled in-lifetime slot
                     }
-                    // else: upcoming, or a no-log slot outside the med's lifetime → not counted
+                    // else: upcoming, still-snoozed, or outside the med's lifetime → not counted
                 }
             }
 
@@ -172,11 +184,12 @@ enum AdherenceCalculator {
                 for rule in medicine.rules {
                     guard let slot = rule.scheduledDate(on: day, calendar: calendar) else { continue }
                     guard seenSlots.insert(slot).inserted else { continue }
-                    switch ExecutionEngine.latestLog(medicineID: medicine.id, scheduledFor: slot, in: logs)?.action {
+                    let latest = ExecutionEngine.latestLog(medicineID: medicine.id, scheduledFor: slot, in: logs)
+                    switch latest?.action {
                     case .taken, .skipped:
                         break   // settled → not missed
                     case .snoozed, .none:
-                        if now > slot && ExecutionEngine.isWithinLifetime(
+                        if now > missedCutoff(slot: slot, latest: latest) && ExecutionEngine.isWithinLifetime(
                             scheduledFor: slot, createdAt: medicine.createdAt,
                             endDate: medicine.endDate, calendar: calendar) {
                             result.append(ScheduledSlot(medicineID: medicine.id, medicineName: medicine.name,

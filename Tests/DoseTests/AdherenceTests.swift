@@ -339,4 +339,31 @@ final class AdherenceTests: XCTestCase {
                        "the missed slots are exactly the untaken past-due days, oldest → newest")
         XCTAssertTrue(events.allSatisfy { $0.medicineID == medID }, "every event is a real slot of the medicine")
     }
+
+    /// An actively-snoozed dose is DEFERRED — neither taken nor missed — until its snooze window elapses,
+    /// matching Today's `.snoozed` status. FAIL-BEFORE: adherence counted it missed at `now > slot`,
+    /// so Week/History listed a still-snoozed dose under "Missed". PASS-AFTER: excluded while snoozed,
+    /// missed once the window passes; `missedEvents` and `missedCount` stay in parity throughout.
+    func testSnoozedDoseNotMissedWhileWithinSnoozeWindow() {
+        let slot = at(2026, 6, 16, 8, 0)
+        let snoozedAt = at(2026, 6, 16, 8, 5)                 // snoozed 60 min → until 09:05
+        let med = dailyMed(createdAt: at(2026, 6, 10))
+        let logs = [DoseLogSnapshot(medicineID: medID, scheduledFor: slot, action: .snoozed,
+                                    actionedAt: snoozedAt, snoozeMinutes: 60)]
+
+        // 08:30 — within the snooze window → NOT missed, NOT counted; missedEvents excludes it.
+        let midNow = at(2026, 6, 16, 8, 30)
+        let within = AdherenceCalculator.days(medicines: [med], logs: logs, now: midNow, days: 1, calendar: cal)
+        XCTAssertEqual(within.last?.missed, 0, "a dose still within its snooze window is not missed")
+        XCTAssertEqual(within.last?.counted, 0, "…and not yet counted against adherence")
+        XCTAssertTrue(AdherenceCalculator.missedEvents(medicines: [med], logs: logs, from: slot, to: midNow, now: midNow, calendar: cal).isEmpty,
+                      "missedEvents also excludes an in-window snooze")
+
+        // 10:00 — past 09:05 with no further action → missed; parity holds.
+        let lateNow = at(2026, 6, 16, 10, 0)
+        let after = AdherenceCalculator.days(medicines: [med], logs: logs, now: lateNow, days: 1, calendar: cal)
+        XCTAssertEqual(after.last?.missed, 1, "once the snooze elapses with no action, it's missed")
+        let events = AdherenceCalculator.missedEvents(medicines: [med], logs: logs, from: slot, to: lateNow, now: lateNow, calendar: cal)
+        XCTAssertEqual(events.count, AdherenceCalculator.missedCount(after), "missedEvents == missedCount with a snoozed slot")
+    }
 }
