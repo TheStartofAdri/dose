@@ -1,7 +1,14 @@
 import XCTest
+import UIKit
 @testable import Dose
 
 final class NotesUnitTests: XCTestCase {
+    /// A corrupt / undecodable photo blob yields a nil UIImage, so the attachment strip renders nothing
+    /// rather than crashing (the audit's corrupt-photo finding; the removable placeholder tile is v1.1).
+    func testUndecodablePhotoDataIsNilNotACrash() {
+        XCTAssertNil(UIImage(data: Data([0x00, 0x01, 0x02])), "undecodable bytes → nil image (no crash)")
+    }
+
     /// A note is discarded on exit ONLY when it's truly empty — and NOT while a photo is still loading
     /// (the async append would otherwise target a deleted note → silent loss / a write to a dead model).
     func testShouldDiscardOnlyForATrulyEmptyNoteWithNoPendingLoad() {

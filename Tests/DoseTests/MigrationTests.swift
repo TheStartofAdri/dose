@@ -215,4 +215,99 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(reNote.resolvedTags, [.sideEffects], "raw tags resolve to the typed enum")
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<DoseLog>()).first?.snoozeMinutes, 30, "snoozeMinutes persists")
     }
+
+    /// Realistic-scale V5 → V6 upgrade (the shape a shipped-5.0.0 user actually has): many medicines,
+    /// months of DoseLogs, several notes. Asserts NOTHING is lost, exact counts, a spot-checked med's
+    /// fields, and that every new v6 field defaults across the whole store. The container opening at all
+    /// with the migration plan proves the hop is lightweight (a non-lightweight change would throw).
+    func testUpgradeFromLargeV5StorePreservesEveryRecord() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dose-migrate-bulk-\(UUID().uuidString).store")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+
+        let medCount = 20, logsPerMed = 40, noteCount = 8
+        var medIDs: [UUID] = []
+
+        // 1) Write a realistic V5 store.
+        do {
+            let v5Schema = Schema([DoseSchemaV5.Medicine.self, DoseSchemaV5.DoseTime.self,
+                                   DoseSchemaV5.DoseLog.self, DoseSchemaV5.Note.self])
+            let v5 = try ModelContainer(for: v5Schema, configurations: [ModelConfiguration(schema: v5Schema, url: url)])
+            let ctx = ModelContext(v5)
+            let base = Date(timeIntervalSince1970: 1_700_000_000)
+            for m in 0..<medCount {
+                let id = UUID(); medIDs.append(id)
+                let med = DoseSchemaV5.Medicine(id: id, name: "Med \(m)", dosage: "\(m) mg", form: "tablet",
+                                                trustStateRaw: "confirmed", isActive: true, createdAt: base,
+                                                quantity: "\(m * 10) tablets")
+                med.doseTimes = [DoseSchemaV5.DoseTime(hour: 8, minute: 0)]
+                ctx.insert(med)
+                for d in 0..<logsPerMed {
+                    let slot = base.addingTimeInterval(Double(d) * 86_400 + 8 * 3600)
+                    ctx.insert(DoseSchemaV5.DoseLog(medicineID: id, medicineName: "Med \(m)", dosage: "\(m) mg",
+                                                    scheduledFor: slot,
+                                                    actionRaw: d.isMultiple(of: 3) ? "skipped" : "taken",
+                                                    actionedAt: slot.addingTimeInterval(120)))
+                }
+            }
+            for n in 0..<noteCount { ctx.insert(DoseSchemaV5.Note(text: "Note \(n)")) }
+            try ctx.save()
+        }
+
+        // 2) Open with the CURRENT schema (V6) + the migration plan.
+        let current = try ModelContainer(for: DoseStore.currentSchema, migrationPlan: DoseMigrationPlan.self,
+                                         configurations: [ModelConfiguration(schema: DoseStore.currentSchema, url: url)])
+        let ctx = ModelContext(current)
+
+        // Exact counts — nothing lost.
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Medicine>()).count, medCount, "all medicines preserved")
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<DoseLog>()).count, medCount * logsPerMed, "all logs preserved")
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Note>()).count, noteCount, "all notes preserved")
+
+        // A spot-checked medicine's pre-existing fields survive intact.
+        let med = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Medicine>()).first { $0.id == medIDs[0] })
+        XCTAssertEqual(med.name, "Med 0")
+        XCTAssertEqual(med.quantity, "0 tablets")
+        XCTAssertEqual(med.trustState, .confirmed)
+        XCTAssertEqual(med.doseTimes.first?.hour, 8)
+
+        // Every new v6 field defaults across the whole migrated store.
+        XCTAssertTrue(try ctx.fetch(FetchDescriptor<DoseLog>()).allSatisfy { $0.snoozeMinutes == nil },
+                      "snoozeMinutes defaults nil on every migrated log")
+        XCTAssertTrue(try ctx.fetch(FetchDescriptor<Note>()).allSatisfy { $0.tags.isEmpty && $0.medicineID == nil && $0.photos.isEmpty },
+                      "tags/medicineID/photos default empty/nil on every migrated note")
+    }
+
+    /// A note's photos are cascade-deleted with the note, and deleting a single photo drops the count.
+    /// (The relationship-row cleanup is what's statically provable; on-disk external-blob reclamation is
+    /// a device-only check — flagged in the pre-merge plan.)
+    func testDeletingNoteCascadesToItsPhotos() throws {
+        let schema = DoseStore.currentSchema
+        let container = try ModelContainer(for: schema,
+                                           configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let ctx = ModelContext(container)
+
+        let note = Note(text: "with photos")
+        note.photos = [NotePhoto(imageData: Data([1])), NotePhoto(imageData: Data([2])), NotePhoto(imageData: Data([3]))]
+        ctx.insert(note)
+        let keep = Note(text: "keep")
+        keep.photos = [NotePhoto(imageData: Data([9]))]
+        ctx.insert(keep)
+        try ctx.save()
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<NotePhoto>()).count, 4)
+
+        // Delete one photo from `keep`.
+        if let p = keep.photos.first {
+            keep.photos.removeAll { $0.id == p.id }
+            ctx.delete(p)
+        }
+        try ctx.save()
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<NotePhoto>()).count, 3, "deleting one photo drops the count")
+
+        // Delete the whole note → its 3 photos cascade away.
+        ctx.delete(note)
+        try ctx.save()
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<NotePhoto>()).count, 0, "cascade removed the note's photos")
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Note>()).count, 1, "the other note remains")
+    }
 }
