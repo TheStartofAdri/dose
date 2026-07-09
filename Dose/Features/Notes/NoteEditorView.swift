@@ -142,13 +142,26 @@ struct NoteEditorView: View {
         photosLoading += 1                       // block discard-on-exit until this load resolves
         Task { @MainActor in                     // model-context writes stay on the main actor
             defer { photosLoading -= 1; photoItems = [] }
+            var failed = 0
             for item in items {
-                guard !note.isDeleted else { break }   // the note can be torn down mid-load — never
-                if let data = try? await item.loadTransferable(type: Data.self), !note.isDeleted {
-                    note.photos.append(NotePhoto(imageData: data))   // append to / save a deleted model
+                guard !note.isDeleted else { break }   // the note can be torn down mid-load
+                do {
+                    let data = try await item.loadTransferable(type: Data.self)
+                    guard !note.isDeleted else { break }
+                    if let data {
+                        note.photos.append(NotePhoto(imageData: data))
+                    } else {
+                        failed += 1                    // loaded but no image representation
+                    }
+                } catch {
+                    failed += 1                        // load threw (e.g. undownloaded iCloud original)
                 }
             }
             if !note.isDeleted { try? context.save() }
+            // Surface a partial/total failure instead of silently dropping photos the user picked.
+            if failed > 0 {
+                errorMessage = "Couldn't load \(failed) photo\(failed == 1 ? "" : "s") — please try again."
+            }
         }
     }
 
