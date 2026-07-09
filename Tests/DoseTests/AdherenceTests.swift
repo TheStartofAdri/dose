@@ -366,4 +366,35 @@ final class AdherenceTests: XCTestCase {
         let events = AdherenceCalculator.missedEvents(medicines: [med], logs: logs, from: slot, to: lateNow, now: lateNow, calendar: cal)
         XCTAssertEqual(events.count, AdherenceCalculator.missedCount(after), "missedEvents == missedCount with a snoozed slot")
     }
+
+    /// Day-bucketing is DST-safe: with a DST-observing calendar, a late-evening daily dose across the
+    /// spring-forward AND fall-back days buckets to exactly one slot per LOCAL day (never 0 or 2), and
+    /// missedEvents.count == missedCount holds across the boundary. (Real notification DELIVERY on the
+    /// transition day is device-only; this proves the bucketing arithmetic every screen shares.)
+    func testDayBucketingIsDSTSafe() {
+        var ny = Calendar(identifier: .gregorian)
+        ny.timeZone = TimeZone(identifier: "America/New_York")!
+        func nyDate(_ y: Int, _ mo: Int, _ d: Int, _ h: Int = 0, _ mi: Int = 0) -> Date {
+            ny.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
+        }
+        let id = UUID()
+        let rule = DoseSlotRule(hour: 23, minute: 30)   // 23:30 local, daily
+
+        // Spring-forward 2026-03-08 (02:00→03:00). Window 03-06…03-10, all past, no logs → all missed.
+        let sfMed = MedicineSnapshot(id: id, name: "X", dosage: nil, rules: [rule], createdAt: nyDate(2026, 3, 1))
+        let sfDays = AdherenceCalculator.days(medicines: [sfMed], logs: [], from: nyDate(2026, 3, 6),
+                                              to: nyDate(2026, 3, 10, 23, 59), now: nyDate(2026, 3, 11, 12), calendar: ny)
+        XCTAssertEqual(sfDays.count, 5, "one bucket per local day across spring-forward")
+        XCTAssertTrue(sfDays.allSatisfy { $0.missed == 1 }, "each local day has exactly one 23:30 dose (not 0 or 2)")
+        let sfEvents = AdherenceCalculator.missedEvents(medicines: [sfMed], logs: [], from: nyDate(2026, 3, 6),
+                                                        to: nyDate(2026, 3, 10, 23, 59), now: nyDate(2026, 3, 11, 12), calendar: ny)
+        XCTAssertEqual(sfEvents.count, AdherenceCalculator.missedCount(sfDays), "parity holds across spring-forward")
+
+        // Fall-back 2026-11-01 (02:00→01:00).
+        let fbMed = MedicineSnapshot(id: id, name: "X", dosage: nil, rules: [rule], createdAt: nyDate(2026, 10, 1))
+        let fbDays = AdherenceCalculator.days(medicines: [fbMed], logs: [], from: nyDate(2026, 10, 30),
+                                              to: nyDate(2026, 11, 3, 23, 59), now: nyDate(2026, 11, 4, 12), calendar: ny)
+        XCTAssertEqual(fbDays.count, 5, "one bucket per local day across fall-back")
+        XCTAssertTrue(fbDays.allSatisfy { $0.missed == 1 }, "each local day has exactly one 23:30 dose across fall-back")
+    }
 }
