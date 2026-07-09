@@ -149,4 +149,70 @@ final class MigrationTests: XCTestCase {
         let reMed = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Medicine>()).first)
         XCTAssertEqual(reMed.quantity, "100 ml", "quantity persists after being set")
     }
+
+    /// v6 migration: a store at V5 (before Note tags/link/photos and DoseLog.snoozeMinutes) must
+    /// upgrade to V6 lightweight — meds/logs/notes preserved, the new fields default (empty/nil), the
+    /// new `NotePhoto` external-storage entity is usable, and everything round-trips once set. If the
+    /// V5 → V6 hop is NOT actually lightweight-compatible, opening the container below throws and fails
+    /// this test (rather than shipping a migration that would move a real user's store aside).
+    func testUpgradeFromV5StoreDefaultsNoteAndSnoozeFields() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dose-migrate-v5-\(UUID().uuidString).store")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+
+        let medID = UUID()
+        let noteID = UUID()
+
+        // 1) Write a store under the V5 (pre-v6) schema — Note is text-only; DoseLog has no snoozeMinutes.
+        do {
+            let v5Schema = Schema([DoseSchemaV5.Medicine.self, DoseSchemaV5.DoseTime.self,
+                                   DoseSchemaV5.DoseLog.self, DoseSchemaV5.Note.self])
+            let v5 = try ModelContainer(for: v5Schema, configurations: [ModelConfiguration(schema: v5Schema, url: url)])
+            let ctx = ModelContext(v5)
+            let med = DoseSchemaV5.Medicine(id: medID, name: "Amoxicillin", dosage: "500 mg", form: "capsule",
+                                            trustStateRaw: "confirmed", isActive: true, createdAt: .now, quantity: "20 caps")
+            med.doseTimes = [DoseSchemaV5.DoseTime(hour: 9, minute: 0, weekdays: [2, 4, 6])]
+            ctx.insert(med)
+            ctx.insert(DoseSchemaV5.DoseLog(medicineID: medID, medicineName: "Amoxicillin",
+                                            scheduledFor: .now, actionRaw: "taken"))
+            ctx.insert(DoseSchemaV5.Note(id: noteID, text: "felt fine"))
+            try ctx.save()
+        }
+
+        // 2) Open the SAME file with the CURRENT schema (V6) + the migration plan (V5 → V6).
+        let current = try ModelContainer(for: DoseStore.currentSchema, migrationPlan: DoseMigrationPlan.self,
+                                         configurations: [ModelConfiguration(schema: DoseStore.currentSchema, url: url)])
+        let ctx = ModelContext(current)
+
+        // Existing data survived the upgrade.
+        let med = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Medicine>()).first)
+        XCTAssertEqual(med.id, medID)
+        XCTAssertEqual(med.quantity, "20 caps", "existing v5 attribute preserved")
+        XCTAssertEqual(med.doseTimes.first?.weekdays, [2, 4, 6], "schedule preserved")
+
+        let log = try XCTUnwrap(try ctx.fetch(FetchDescriptor<DoseLog>()).first)
+        XCTAssertEqual(log.action, .taken, "existing log preserved")
+        XCTAssertNil(log.snoozeMinutes, "v6 snoozeMinutes defaults to nil — additive/lightweight")
+
+        let note = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Note>()).first)
+        XCTAssertEqual(note.id, noteID)
+        XCTAssertEqual(note.text, "felt fine", "existing note text preserved")
+        XCTAssertEqual(note.tags, [], "v6 tags default to empty")
+        XCTAssertNil(note.medicineID, "v6 medicineID defaults to nil")
+        XCTAssertTrue(note.photos.isEmpty, "v6 photos default to empty")
+
+        // New v6 fields round-trip once set, and the new NotePhoto entity is usable + cascade-linked.
+        log.snoozeMinutes = 30
+        note.tags = [NoteTag.sideEffects.rawValue]
+        note.medicineID = medID
+        note.photos = [NotePhoto(imageData: Data([0x01, 0x02, 0x03]))]
+        try ctx.save()
+
+        let reNote = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Note>()).first)
+        XCTAssertEqual(reNote.tags, ["Side Effects"], "tags persist")
+        XCTAssertEqual(reNote.medicineID, medID, "medicine link persists")
+        XCTAssertEqual(reNote.photos.count, 1, "attached photo persists (cascade relationship)")
+        XCTAssertEqual(reNote.resolvedTags, [.sideEffects], "raw tags resolve to the typed enum")
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<DoseLog>()).first?.snoozeMinutes, 30, "snoozeMinutes persists")
+    }
 }

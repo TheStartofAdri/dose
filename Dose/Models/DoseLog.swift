@@ -13,6 +13,10 @@ final class DoseLog {
     var scheduledFor: Date
     var actionRaw: String
     var actionedAt: Date
+    /// New in v6 — for a `.snoozed` log written from the in-app action sheet, the chosen snooze
+    /// interval in minutes so the reminder re-arms at that interval (nil = the default 10-min
+    /// notification snooze / not applicable). Additive/optional → lightweight migration.
+    var snoozeMinutes: Int?
 
     var action: DoseAction {
         get { DoseAction(rawValue: actionRaw) ?? .taken }
@@ -26,7 +30,8 @@ final class DoseLog {
         dosage: String? = nil,
         scheduledFor: Date,
         action: DoseAction,
-        actionedAt: Date = .now
+        actionedAt: Date = .now,
+        snoozeMinutes: Int? = nil
     ) {
         self.id = id
         self.medicineID = medicineID
@@ -35,5 +40,6 @@ final class DoseLog {
         self.scheduledFor = scheduledFor
         self.actionRaw = action.rawValue
         self.actionedAt = actionedAt
+        self.snoozeMinutes = snoozeMinutes
     }
 }

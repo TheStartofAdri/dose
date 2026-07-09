@@ -344,20 +344,126 @@ enum DoseSchemaV4: VersionedSchema {
     }
 }
 
-// MARK: - V5: the current schema — Medicine gained `quantity` (optional → migration-safe). `models`
-// are the live top-level types, so V5 always tracks the current app models.
+// MARK: - V5: the previously-shipped schema — Medicine gained `quantity` (optional). Frozen faithful
+// copies of the 5.0.0 shape (NO `NotePhoto`; Note is text-only; DoseLog has no `snoozeMinutes`), so
+// adding the v6 fields to the live models can't silently change "5.0.0" and break in-place migration —
+// the same discipline applied to V1–V4 above.
 
 enum DoseSchemaV5: VersionedSchema {
     static var versionIdentifier = Schema.Version(5, 0, 0)
     static var models: [any PersistentModel.Type] { [Medicine.self, DoseTime.self, DoseLog.self, Note.self] }
+
+    @Model final class Medicine {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var dosage: String?
+        var form: String?
+        var trustStateRaw: String
+        var isActive: Bool
+        var createdAt: Date
+        var iconName: String?
+        var colorHex: String?
+        var endDate: Date?
+        var instructions: String?
+        var leadTimeMinutes: Int?
+        var quantity: String?
+        @Relationship(deleteRule: .cascade, inverse: \DoseTime.medicine) var doseTimes: [DoseTime]
+
+        init(id: UUID = UUID(), name: String, dosage: String? = nil, form: String? = nil,
+             trustStateRaw: String = "draft", isActive: Bool = true, createdAt: Date = .now,
+             iconName: String? = nil, colorHex: String? = nil, endDate: Date? = nil,
+             instructions: String? = nil, leadTimeMinutes: Int? = nil, quantity: String? = nil,
+             doseTimes: [DoseTime] = []) {
+            self.id = id
+            self.name = name
+            self.dosage = dosage
+            self.form = form
+            self.trustStateRaw = trustStateRaw
+            self.isActive = isActive
+            self.createdAt = createdAt
+            self.iconName = iconName
+            self.colorHex = colorHex
+            self.endDate = endDate
+            self.instructions = instructions
+            self.leadTimeMinutes = leadTimeMinutes
+            self.quantity = quantity
+            self.doseTimes = doseTimes
+        }
+    }
+
+    @Model final class DoseTime {
+        var hour: Int
+        var minute: Int
+        var weekdays: [Int] = []
+        var intervalDays: Int = 0
+        var anchorDate: Date?
+        var daysOfMonth: [Int] = []
+        var medicine: Medicine?
+
+        init(hour: Int, minute: Int, weekdays: [Int] = [], intervalDays: Int = 0,
+             anchorDate: Date? = nil, daysOfMonth: [Int] = [], medicine: Medicine? = nil) {
+            self.hour = hour
+            self.minute = minute
+            self.weekdays = weekdays
+            self.intervalDays = intervalDays
+            self.anchorDate = anchorDate
+            self.daysOfMonth = daysOfMonth
+            self.medicine = medicine
+        }
+    }
+
+    @Model final class DoseLog {
+        @Attribute(.unique) var id: UUID
+        var medicineID: UUID
+        var medicineName: String
+        var dosage: String?
+        var scheduledFor: Date
+        var actionRaw: String
+        var actionedAt: Date
+
+        init(id: UUID = UUID(), medicineID: UUID, medicineName: String, dosage: String? = nil,
+             scheduledFor: Date, actionRaw: String, actionedAt: Date = .now) {
+            self.id = id
+            self.medicineID = medicineID
+            self.medicineName = medicineName
+            self.dosage = dosage
+            self.scheduledFor = scheduledFor
+            self.actionRaw = actionRaw
+            self.actionedAt = actionedAt
+        }
+    }
+
+    @Model final class Note {
+        @Attribute(.unique) var id: UUID
+        var text: String
+        var createdAt: Date
+
+        init(id: UUID = UUID(), text: String = "", createdAt: Date = .now) {
+            self.id = id
+            self.text = text
+            self.createdAt = createdAt
+        }
+    }
+}
+
+// MARK: - V6: the current schema — Note gained tags / medicineID / photos, a new `NotePhoto`
+// external-storage entity was added, and DoseLog gained `snoozeMinutes` (all optional/defaulted →
+// lightweight). `models` are the live top-level types, so V6 always tracks the current app models.
+
+enum DoseSchemaV6: VersionedSchema {
+    static var versionIdentifier = Schema.Version(6, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [Medicine.self, DoseTime.self, DoseLog.self, Note.self, NotePhoto.self]
+    }
 }
 
 // MARK: - Migration plan: every hop is purely additive with safe defaults / a new entity, so each
-// stage is lightweight. V1 → V2 → V3 → V4 → V5.
+// stage is lightweight. V1 → V2 → V3 → V4 → V5 → V6.
 
 enum DoseMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [DoseSchemaV1.self, DoseSchemaV2.self, DoseSchemaV3.self, DoseSchemaV4.self, DoseSchemaV5.self]
+        [DoseSchemaV1.self, DoseSchemaV2.self, DoseSchemaV3.self, DoseSchemaV4.self,
+         DoseSchemaV5.self, DoseSchemaV6.self]
     }
     static var stages: [MigrationStage] {
         [
@@ -365,6 +471,7 @@ enum DoseMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: DoseSchemaV2.self, toVersion: DoseSchemaV3.self),
             .lightweight(fromVersion: DoseSchemaV3.self, toVersion: DoseSchemaV4.self),
             .lightweight(fromVersion: DoseSchemaV4.self, toVersion: DoseSchemaV5.self),
+            .lightweight(fromVersion: DoseSchemaV5.self, toVersion: DoseSchemaV6.self),
         ]
     }
 }
@@ -381,7 +488,7 @@ enum StoreLoadOutcome: Equatable {
 }
 
 enum DoseStore {
-    static var currentSchema: Schema { Schema(versionedSchema: DoseSchemaV5.self) }
+    static var currentSchema: Schema { Schema(versionedSchema: DoseSchemaV6.self) }
 
     /// The outcome of the most recent `makeContainer()` call, read by `DoseApp` to drive the recovery
     /// notice. `.normal` until proven otherwise.
@@ -476,6 +583,24 @@ enum DoseStore {
                                         trustStateRaw: "confirmed", isActive: true, createdAt: .now)
         med.doseTimes = [DoseSchemaV2.DoseTime(hour: 9, minute: 0)]   // daily → always on Today
         ctx.insert(med)
+        try? ctx.save()
+    }
+
+    /// Writes a genuine V5 store (the shape just before the v6 notes/snooze additions) at the default
+    /// location, so a normal launch exercises the real V5 → V6 upgrade — the path a current on-device
+    /// store takes now.
+    static func writeLegacyStoreV5ForTesting() {
+        let url = defaultStoreURL
+        moveStoreAside(url)
+        let v5Schema = Schema([DoseSchemaV5.Medicine.self, DoseSchemaV5.DoseTime.self,
+                               DoseSchemaV5.DoseLog.self, DoseSchemaV5.Note.self])
+        guard let v5 = try? ModelContainer(for: v5Schema, configurations: [ModelConfiguration(schema: v5Schema, url: url)]) else { return }
+        let ctx = ModelContext(v5)
+        let med = DoseSchemaV5.Medicine(name: "Legacy V5 Med", dosage: "10 mg", form: "tablet",
+                                        trustStateRaw: "confirmed", isActive: true, createdAt: .now, quantity: "30 tablets")
+        med.doseTimes = [DoseSchemaV5.DoseTime(hour: 9, minute: 0)]   // daily → always on Today
+        ctx.insert(med)
+        ctx.insert(DoseSchemaV5.Note(text: "legacy note"))
         try? ctx.save()
     }
     #endif
