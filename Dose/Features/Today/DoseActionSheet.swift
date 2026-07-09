@@ -1,9 +1,12 @@
 import SwiftUI
 
 /// The dose action sheet — Taken / Skipped / Snooze for one dose, with snooze presets (10 / 30 / 60 /
-/// custom). Presented as a bottom sheet from Today's "Next up" hero (and, from Phase 6, the detail
-/// screen). Snooze passes the chosen minutes up, which the caller writes to the DoseLog + re-arms the
-/// reminder at that interval (Phases 5a/5b).
+/// custom). Presented as a bottom sheet from Today's "Next up" hero and the detail screen. Snooze passes
+/// the chosen minutes up, which the caller writes to the DoseLog + re-arms the reminder at that interval.
+///
+/// Snooze is offered ONLY for a due / missed / snoozed dose — never for an `.upcoming` (not-yet-due) one:
+/// snoozing a dose that isn't due yet is meaningless and would leave its original on-time reminder to
+/// re-arm on the next reschedule (a duplicate reminder). Taken/Skipped are always available.
 struct DoseActionSheet: View {
     let dose: TodayDose
     var onTake: () -> Void
@@ -16,6 +19,12 @@ struct DoseActionSheet: View {
 
     private let presets = [10, 30, 60]
     private let customChoices = [15, 20, 45, 90, 120, 180]
+
+    /// Snooze is meaningful only for a dose that's due/overdue/already-snoozed — not one still upcoming.
+    static func offersSnooze(for status: DoseStatus) -> Bool {
+        status == .due || status == .missed || status == .snoozed
+    }
+    private var offersSnooze: Bool { Self.offersSnooze(for: dose.status) }
 
     var body: some View {
         VStack(spacing: DoseSpacing.lg) {
@@ -31,42 +40,46 @@ struct DoseActionSheet: View {
                           a11y: "Mark \(dose.medicineName) taken") { onTake(); dismiss() }
                 bigButton("Skipped", icon: "minus", color: DoseColors.neutral,
                           a11y: "Skip \(dose.medicineName) today") { onSkip(); dismiss() }
-                bigButton("Snooze", icon: "clock", color: DoseColors.snoozed,
-                          a11y: "Snooze \(dose.medicineName) 10 minutes") { onSnooze(10); dismiss() }
+                if offersSnooze {
+                    bigButton("Snooze", icon: "clock", color: DoseColors.snoozed,
+                              a11y: "Snooze \(dose.medicineName) 10 minutes") { onSnooze(10); dismiss() }
+                }
             }
 
-            Divider()
+            if offersSnooze {
+                Divider()
 
-            VStack(alignment: .leading, spacing: DoseSpacing.sm) {
-                Text("Snooze for").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                HStack(spacing: DoseSpacing.sm) {
-                    ForEach(presets, id: \.self) { minutes in
-                        Button { onSnooze(minutes); dismiss() } label: {
-                            Text(label(minutes))
-                                .font(DoseFont.chip)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, DoseSpacing.md)
-                                .background(DoseColors.neutral.opacity(0.12),
-                                            in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
+                VStack(alignment: .leading, spacing: DoseSpacing.sm) {
+                    Text("Snooze for").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    HStack(spacing: DoseSpacing.sm) {
+                        ForEach(presets, id: \.self) { minutes in
+                            Button { onSnooze(minutes); dismiss() } label: {
+                                Text(label(minutes))
+                                    .font(DoseFont.chip)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, DoseSpacing.md)
+                                    .background(DoseColors.neutral.opacity(0.12),
+                                                in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.primary)
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.primary)
                     }
-                }
-                Button { withAnimation { showCustom.toggle() } } label: {
-                    Label("Custom time", systemImage: "slider.horizontal.3").font(.subheadline)
-                }
-                .padding(.top, DoseSpacing.xs)
+                    Button { withAnimation { showCustom.toggle() } } label: {
+                        Label("Custom time", systemImage: "slider.horizontal.3").font(.subheadline)
+                    }
+                    .padding(.top, DoseSpacing.xs)
 
-                if showCustom {
-                    HStack {
-                        Picker("Minutes", selection: $customMinutes) {
-                            ForEach(customChoices, id: \.self) { Text(label($0)).tag($0) }
+                    if showCustom {
+                        HStack {
+                            Picker("Minutes", selection: $customMinutes) {
+                                ForEach(customChoices, id: \.self) { Text(label($0)).tag($0) }
+                            }
+                            .pickerStyle(.wheel)
+                            .frame(height: 110)
+                            Button("Snooze") { onSnooze(customMinutes); dismiss() }
+                                .buttonStyle(.borderedProminent)
                         }
-                        .pickerStyle(.wheel)
-                        .frame(height: 110)
-                        Button("Snooze") { onSnooze(customMinutes); dismiss() }
-                            .buttonStyle(.borderedProminent)
                     }
                 }
             }
@@ -76,7 +89,7 @@ struct DoseActionSheet: View {
                 .padding(.top, DoseSpacing.xs)
         }
         .padding(DoseSpacing.lg)
-        .presentationDetents([.height(showCustom ? 540 : 380)])
+        .presentationDetents([.height(showCustom ? 540 : (offersSnooze ? 380 : 240))])
         .presentationDragIndicator(.visible)
     }
 

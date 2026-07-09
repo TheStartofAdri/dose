@@ -62,16 +62,19 @@ struct NextUpCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Take \(dose.medicineName) now")
 
-                Button(action: onSnooze) {
-                    Text("Snooze")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, DoseSpacing.lg)
-                        .padding(.vertical, DoseSpacing.md)
-                        .background(DoseColors.neutral.opacity(0.14), in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
-                        .foregroundStyle(.primary)
+                // Snooze only when the dose is actually due/overdue — not a not-yet-due upcoming one.
+                if dose.status != .upcoming {
+                    Button(action: onSnooze) {
+                        Text("Snooze")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, DoseSpacing.lg)
+                            .padding(.vertical, DoseSpacing.md)
+                            .background(DoseColors.neutral.opacity(0.14), in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
+                            .foregroundStyle(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Snooze \(dose.medicineName)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Snooze \(dose.medicineName)")
             }
         }
         .doseCardStyle()
