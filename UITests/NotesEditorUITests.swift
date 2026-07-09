@@ -37,6 +37,31 @@ final class NotesEditorUITests: XCTestCase {
                       "tapping the row's trailing area opens the note editor")
     }
 
+    // Phase 7: a note can be tagged, and the tag filter chips show / hide it accordingly.
+    func testTagFilterShowsAndHidesNotes() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipAuth", "-stubParser", "-uiTestReset", "-tab", "notes"]
+        app.launch()
+
+        app.buttons["Add note"].tap()
+        let field = app.textFields["Write a note…"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("Felt dizzy this morning")
+        app.buttons["Symptoms tag"].tap()          // tag it "Symptoms" in the editor
+        app.buttons["Done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Felt dizzy this morning"].waitForExistence(timeout: 5),
+                      "the tagged note is in the list")
+        // Filter by a DIFFERENT tag → hidden.
+        app.buttons["Side Effects"].tap()
+        XCTAssertFalse(app.staticTexts["Felt dizzy this morning"].exists,
+                       "a Symptoms note is hidden under the Side Effects filter")
+        // Filter by its OWN tag → shown again.
+        app.buttons["Symptoms"].tap()
+        XCTAssertTrue(app.staticTexts["Felt dizzy this morning"].waitForExistence(timeout: 5),
+                      "the note shows under its own tag filter")
+    }
+
     // Item 5 — a blank note isn't persisted.
     func testBlankNoteIsDiscarded() {
         let app = XCUIApplication()

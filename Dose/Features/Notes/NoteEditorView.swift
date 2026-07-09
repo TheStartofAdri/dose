@@ -1,17 +1,21 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
-/// Edit a single note, and (explicitly) analyze it into a medicine draft. Analysis reuses the exact
-/// existing pipeline: only this note's text is sent (`.text`), through `MedicationParser`, into the
-/// existing `ReviewConfirmView` gate. It only ever runs on the user's tap — never on save or in the
-/// background — and a medicine is created only if the user confirms in review.
+/// Edit a single note — text, tags, a linked medicine, and photo attachments — and (explicitly)
+/// analyze it into a medicine draft. Analysis reuses the exact existing pipeline: only this note's
+/// text is sent (`.text`), through `MedicationParser`, into the existing `ReviewConfirmView` gate. It
+/// only ever runs on the user's tap — never on save or in the background — and a medicine is created
+/// only if the user confirms in review.
 struct NoteEditorView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Bindable var note: Note
+    @Query(sort: \Medicine.name) private var medicines: [Medicine]
 
     private let parser: MedicationParser = MedicationParserFactory.make()
 
+    @State private var photoItems: [PhotosPickerItem] = []
     @State private var isAnalyzing = false
     @State private var errorMessage: String?
     @State private var drafts: [EditableDraft] = []
@@ -22,12 +26,43 @@ struct NoteEditorView: View {
     @State private var showAIConsent = false
 
     private var trimmed: String { note.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var activeMedicines: [Medicine] { Medicine.activeConfirmed(medicines) }
+
+    /// Editor tags as a typed set, mapped back to the note's raw `[String]` in `NoteTag.allCases` order.
+    private var tagsBinding: Binding<Set<NoteTag>> {
+        Binding(
+            get: { Set(note.resolvedTags) },
+            set: { newValue in note.tags = NoteTag.allCases.filter(newValue.contains).map(\.rawValue) }
+        )
+    }
+    private var medicineBinding: Binding<UUID?> {
+        Binding(get: { note.medicineID }, set: { note.medicineID = $0 })
+    }
 
     var body: some View {
         Form {
             Section("Note") {
                 TextField("Write a note…", text: $note.text, axis: .vertical)
                     .lineLimit(5...20)
+            }
+
+            Section("Tags") {
+                TagPicker(selected: tagsBinding)
+            }
+
+            Section("Medicine") {
+                Picker("Linked medicine", selection: medicineBinding) {
+                    Text("None").tag(UUID?.none)
+                    ForEach(activeMedicines) { med in Text(med.name).tag(Optional(med.id)) }
+                }
+            }
+
+            Section("Photos") {
+                PhotoAttachmentRow(photos: note.photos, onDelete: deletePhoto)
+                PhotosPicker(selection: $photoItems, maxSelectionCount: 4, matching: .images) {
+                    Label("Add photo", systemImage: "photo.badge.plus")
+                }
+                .accessibilityIdentifier("addPhoto")
             }
 
             if AppConfig.aiConfigured {
@@ -67,6 +102,7 @@ struct NoteEditorView: View {
         }
         // Back-navigation is non-destructive (keeps what was typed); blank notes don't linger.
         .onDisappear { saveOrDiscard() }
+        .onChange(of: photoItems) { _, items in loadPhotos(items) }
         .sheet(isPresented: $showReview) {
             NavigationStack {
                 ReviewConfirmView(drafts: drafts)
@@ -81,11 +117,33 @@ struct NoteEditorView: View {
     /// Persist the note on exit, or remove it if the user left it blank (notes are inserted up front
     /// when "+" is tapped, so an empty-and-back shouldn't leave a stray row). Never analyzes.
     private func saveOrDiscard() {
-        if trimmed.isEmpty {
-            context.delete(note)            // never persist a blank/whitespace-only note
+        // Keep the note if it has ANY content — text, tags, a linked medicine, or photos. Only a truly
+        // empty note (inserted on "+", then abandoned) is discarded, so a photo/tag-only note survives.
+        let hasExtras = !note.tags.isEmpty || note.medicineID != nil || !note.photos.isEmpty
+        if trimmed.isEmpty && !hasExtras {
+            context.delete(note)
         } else if note.text != trimmed {
             note.text = trimmed             // trim surrounding whitespace on save
         }
+        try? context.save()
+    }
+
+    private func loadPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        Task {
+            for item in items {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    note.photos.append(NotePhoto(imageData: data))
+                }
+            }
+            photoItems = []
+            try? context.save()
+        }
+    }
+
+    private func deletePhoto(_ photo: NotePhoto) {
+        note.photos.removeAll { $0.id == photo.id }
+        context.delete(photo)
         try? context.save()
     }
 
