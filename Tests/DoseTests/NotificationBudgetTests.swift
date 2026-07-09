@@ -207,6 +207,28 @@ final class NotificationBudgetTests: XCTestCase {
                        "re-armed at the chosen 30 min (08:32), not the default 10 min")
     }
 
+    /// The plan NEVER exceeds the 64-notification iOS cap, even when pending snoozes alone would fill it:
+    /// the coverage sentinel is reserved BEFORE trimming snoozes, so iOS never has to evict a scheduled
+    /// reminder. FAIL-BEFORE (audit LOW): 64 snoozes + a beyond-window med → total 65 (sentinel dropped).
+    func testBudgetNeverExceedsCapEvenWhenSnoozesFillIt() {
+        let base = cal.date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 8))!
+        let now = base.addingTimeInterval(60)
+        var meds: [MedicineSnapshot] = []
+        var logs: [DoseLogSnapshot] = []
+        for _ in 0..<70 {   // 70 imminent pending snoozes — more than the cap
+            let id = UUID()
+            meds.append(MedicineSnapshot(id: id, name: "M", dosage: nil, rules: [DoseSlotRule(hour: 8, minute: 0)]))
+            logs.append(DoseLogSnapshot(medicineID: id, scheduledFor: base, action: .snoozed,
+                                        actionedAt: now, snoozeMinutes: 30))
+        }
+        // Plus an ongoing daily med → doses beyond the window → a coverage sentinel is needed.
+        meds.append(MedicineSnapshot(id: UUID(), name: "Ongoing", dosage: nil, rules: [DoseSlotRule(hour: 9, minute: 0)]))
+
+        let p = NotificationPlanner.plan(medicines: meds, logs: logs, now: now, escalationEnabled: false, calendar: cal)
+        XCTAssertLessThanOrEqual(p.total, NotificationPlanner.maxPending,
+                                 "the plan must never exceed the 64-notification iOS cap")
+    }
+
     /// A take/skip after the snooze settles the slot — the latest log is no longer `.snoozed`, so
     /// nothing re-arms (same latest-log rule the engine's status uses).
     func testSnoozedThenTakenSlotDoesNotRebuildSnooze() {

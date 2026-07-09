@@ -156,18 +156,20 @@ enum NotificationPlanner {
                                             dosage: med.dosage, fireDate: fire,
                                             scheduledFor: entry.scheduledFor, isEscalation: false))
         }
-        snoozes = Array(snoozes.sorted { $0.fireDate < $1.fireDate }.prefix(budget))
-
         // Budget — priority order preserved. Snoozes (imminent, few) claim first, then on-time trims
         // soonest-first, so the nearest doses are always covered and on-time is never sacrificed for
         // escalation/lead-time.
         var baseTruncated = false
         onTime.sort { $0.fireDate < $1.fireDate }
-        // The refill sentinel needs a GUARANTEED slot whenever doses exist beyond this plan's
-        // coverage — reserved before trimming, so the fully-loaded case (the one that needs the
-        // warning most) can't squeeze it out.
-        let needsSentinel = hasBeyondWindow || onTime.count > max(0, budget - snoozes.count)
-        let onTimeBudget = max(0, budget - snoozes.count - (needsSentinel ? 1 : 0))
+        // The refill sentinel needs a GUARANTEED slot whenever doses exist beyond this plan's coverage.
+        // Reserve it BEFORE trimming EITHER snoozes or on-time (using the untrimmed demand), so even the
+        // fully-loaded case — enough pending snoozes to fill the cap by themselves — can't push the total
+        // past the 64 limit and make iOS silently drop a scheduled request (previously `snoozes.prefix(
+        // budget)` ignored the sentinel → 65 pending). For normal loads (few snoozes) this is a no-op.
+        let needsSentinel = hasBeyondWindow || (snoozes.count + onTime.count) > budget
+        let effectiveBudget = max(0, budget - (needsSentinel ? 1 : 0))
+        snoozes = Array(snoozes.sorted { $0.fireDate < $1.fireDate }.prefix(effectiveBudget))
+        let onTimeBudget = max(0, effectiveBudget - snoozes.count)
         var sentinelFireDate: Date?
         if onTime.count > onTimeBudget {
             sentinelFireDate = onTime[onTimeBudget].fireDate   // when the first UNcovered dose is due
