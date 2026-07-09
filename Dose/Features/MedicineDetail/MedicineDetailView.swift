@@ -17,6 +17,7 @@ struct MedicineDetailView: View {
     @State private var confirmDelete = false
     @State private var showReport = false
     @State private var showPaywall = false
+    @State private var actionSheetDose: TodayDose?
     @ObservedObject private var subscription = SubscriptionStore.shared   // re-render on entitlement change
 
     var body: some View {
@@ -60,6 +61,14 @@ struct MedicineDetailView: View {
             NavigationStack { ReportOptionsView(preselected: [medicine.id]) }
         }
         .sheet(isPresented: $showPaywall) { PaywallView(context: .unlock(.reportExport)) }
+        .sheet(item: $actionSheetDose) { dose in
+            DoseActionSheet(
+                dose: dose,
+                onTake: { record(.taken, for: dose) },
+                onSkip: { record(.skipped, for: dose) },
+                onSnooze: { minutes in record(.snoozed, for: dose, minutes: minutes) }
+            )
+        }
         .confirmationDialog("Archive this medicine?", isPresented: $confirmArchive) {
             Button("Archive \(medicine.name)", role: .destructive) { archive() }
             Button("Cancel", role: .cancel) {}
@@ -80,15 +89,14 @@ struct MedicineDetailView: View {
         let series = AdherenceCalculator.days(medicines: [medicine.snapshot()], logs: medLogs, now: now, days: 30)
         let last14 = Array(series.suffix(14))
         let last7 = Array(series.suffix(7))
+        // This medicine's soonest un-acted dose today — the one the action sheet logs.
+        let todaysDose = ExecutionEngine.todaysDoses(confirmedMedicines: [medicine], logs: allLogs, now: now)
+            .first { !$0.status.isSettled }
 
         List {
             Section {
                 HStack(spacing: 14) {
-                    Image(systemName: MedAppearance.icon(medicine.iconName))
-                        .font(.title2)
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 48)
-                        .background(MedAppearance.color(medicine.colorHex), in: Circle())
+                    MedicineIconBadge(iconName: medicine.iconName, colorHex: medicine.colorHex, size: 48)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(medicine.name).font(.title3.weight(.semibold))
                         if let dosage = medicine.dosage, !dosage.isEmpty {
@@ -97,6 +105,26 @@ struct MedicineDetailView: View {
                     }
                 }
                 .padding(.vertical, 4)
+            }
+
+            if let todaysDose {
+                Section("Today") {
+                    Button { actionSheetDose = todaysDose } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: DoseTheme.icon(for: todaysDose.status))
+                                .foregroundStyle(DoseTheme.color(for: todaysDose.status))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Due \(todaysDose.scheduledFor.formatted(date: .omitted, time: .shortened))")
+                                    .foregroundStyle(.primary)
+                                Text("Tap to log this dose").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Log today's dose for \(medicine.name)")
+                }
             }
 
             Section("Details") {
@@ -182,6 +210,22 @@ struct MedicineDetailView: View {
             return dt.weekdays.sorted().compactMap { (1...7).contains($0) ? symbols[$0 - 1] : nil }.joined(separator: " ")
         }
         return "Every day"
+    }
+
+    /// Log a dose action for this medicine's today dose, mirroring `TodayView.record` (same writer +
+    /// notification cancel/snooze), so logging from detail behaves identically to logging from Today.
+    private func record(_ action: DoseAction, for dose: TodayDose, minutes: Int? = nil) {
+        let snoozeMinutes = action == .snoozed ? (minutes ?? 10) : nil
+        DoseActionWriter.record(action, medicineID: dose.medicineID, medicineName: dose.medicineName,
+                                dosage: dose.dosage, scheduledFor: dose.scheduledFor,
+                                snoozeMinutes: snoozeMinutes, into: context)
+        NotificationScheduler.shared.cancelSlot(medicineID: dose.medicineID, scheduledFor: dose.scheduledFor)
+        if action == .snoozed {
+            NotificationScheduler.shared.scheduleSnooze(
+                medicineID: dose.medicineID, medicineName: dose.medicineName, dosage: dose.dosage,
+                scheduledFor: dose.scheduledFor, minutes: snoozeMinutes)
+        }
+        Haptics.light()
     }
 
     // MARK: - Management (mirrors Today's archive/delete: keep DoseLog history)

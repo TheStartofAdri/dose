@@ -83,6 +83,23 @@ final class TodayCardUITests: XCTestCase {
         XCTAssertTrue(snoozed.waitForExistence(timeout: 5), "choosing a preset snoozes the dose")
     }
 
+    // The Medicine detail routes today's dose through the SAME action sheet (Phase 6 wiring).
+    func testDetailLogsDoseViaActionSheet() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipAuth", "-uiTestReset"]
+        app.launch()
+        addMedicine(app, name: "Ibuprofen")
+
+        // Open the medicine detail from the schedule row.
+        app.cells.containing(.staticText, identifier: "Ibuprofen").firstMatch.staticTexts["Ibuprofen"].tap()
+        XCTAssertTrue(app.staticTexts["Schedule"].waitForExistence(timeout: 5), "the detail opened")
+
+        // The Today section logs the dose through the shared action sheet (presets appear).
+        app.buttons["Log today's dose for Ibuprofen"].tap()
+        XCTAssertTrue(app.buttons["30m"].waitForExistence(timeout: 5),
+                      "the detail logs a dose through the shared action sheet")
+    }
+
     // Regression guard for the REAL card in the NAME-LEADING layout: the name leads beside the icon (where
     // the big time used to be) with the dose stacked directly under it; the small time sits at the top-right
     // with the Take/⋯ controls below it; the instruction caption and status chip are on full-width rows at
