@@ -15,6 +15,7 @@ struct SettingsView: View {
 
     @ObservedObject private var subscription = SubscriptionStore.shared
     @State private var showPaywall = false
+    @State private var showReport = false
     @State private var manageSubscriptions = false
 
     // Diagnostics: the startup reachability probe flips this when the AI backend host can't be reached.
@@ -56,6 +57,20 @@ struct SettingsView: View {
                     Text("Your reminders, history, and notes keep working even if your subscription lapses. Premium unlocks reports, AI add, scanning, and the weekly view.")
                 }
 
+                Section("Data & Reports") {
+                    Button {
+                        if Entitlements.isPremium { showReport = true } else { showPaywall = true }
+                    } label: {
+                        HStack {
+                            Label("Export PDF report", systemImage: "square.and.arrow.up")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            PROBadge()
+                        }
+                    }
+                    .accessibilityIdentifier("exportReportRow")
+                }
+
                 // Shown only when there are archived medicines — the one place to restore or delete them.
                 if !Medicine.archived(medicines).isEmpty {
                     Section("Medicines") {
@@ -89,7 +104,7 @@ struct SettingsView: View {
                             .accessibilityIdentifier("revokeAIConsent")
                     }
                 } header: {
-                    Text("AI")
+                    HStack { Text("AI"); PROBadge() }
                 } footer: {
                     Text(aiSectionFooter)
                 }
@@ -131,6 +146,9 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .sheet(isPresented: $showPaywall) { PaywallView(context: .upgrade) }
+            .sheet(isPresented: $showReport) {
+                NavigationStack { ReportOptionsView(preselected: nil) }
+            }
             .manageSubscriptionsSheet(isPresented: $manageSubscriptions)
         }
     }

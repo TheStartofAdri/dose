@@ -4,6 +4,17 @@ import XCTest
 /// honest expectations (English works best; other languages may not read correctly) rather than
 /// promising automatic multilingual recognition (item 5).
 final class SettingsUITests: XCTestCase {
+    // Phase 8: Settings surfaces a premium PDF-export shortcut (with a PRO badge).
+    func testSettingsShowsPremiumExportShortcut() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipAuth", "-tab", "settings"]
+        app.launch()
+        let export = app.buttons["exportReportRow"]
+        var tries = 0
+        while !export.exists && tries < 6 { app.swipeUp(); tries += 1 }
+        XCTAssertTrue(export.waitForExistence(timeout: 5), "Settings offers a PDF export shortcut")
+    }
+
     override func setUp() { continueAfterFailure = false }
 
     func testScanningCopyIsHonestAndNoLanguagePicker() {

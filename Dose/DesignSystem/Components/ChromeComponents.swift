@@ -1,5 +1,18 @@
 import SwiftUI
 
+/// A small "PRO" badge marking a premium feature (Settings rows, gated entry points).
+struct PROBadge: View {
+    var body: some View {
+        Text("PRO")
+            .font(.caption2.weight(.bold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(DoseColors.accent, in: Capsule())
+            .foregroundStyle(.white)
+            .accessibilityLabel("Premium")
+    }
+}
+
 /// A selectable pill filter — History's All / Taken / Skipped / Snoozed / Missed chips.
 struct FilterChip: View {
     let title: String
