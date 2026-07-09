@@ -10,9 +10,6 @@ struct TodayView: View {
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
 
     @State private var showingAdd = false
-    @State private var showingWeek = false
-    @State private var showWeekPaywall = false
-    @ObservedObject private var subscription = SubscriptionStore.shared   // re-render on entitlement change
     @State private var editingMedicine: Medicine?
     @State private var archiving: Medicine?
     @State private var deleting: Medicine?
@@ -25,20 +22,11 @@ struct TodayView: View {
             }
             .navigationTitle("Today")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    // "This week" is premium; non-subscribers get the unlock paywall (Today stays free).
-                    Button {
-                        if Entitlements.isPremium { showingWeek = true } else { showWeekPaywall = true }
-                    } label: { Image(systemName: "calendar") }
-                        .accessibilityLabel("This week")
-                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingAdd = true } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Add medicine")
                 }
             }
-            .navigationDestination(isPresented: $showingWeek) { WeekView() }
-            .sheet(isPresented: $showWeekPaywall) { PaywallView(context: .unlock(.weeklyView)) }
             .sheet(isPresented: $showingAdd) { AddMedicineFlow() }
             .sheet(isPresented: editBinding) {
                 if let medicine = editingMedicine { AddMedicineFlow(editing: medicine) }

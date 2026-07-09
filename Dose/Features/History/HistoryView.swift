@@ -1,17 +1,38 @@
 import SwiftUI
 import SwiftData
-import Charts
 
-/// Behavioural history (free): a streak hero, two clearly-labelled adherence rates, and a 14-day
-/// adherence chart. Everything is derived from `DoseLog` via `AdherenceCalculator` — the header
-/// percentages and the chart read the **same** corrected per-day series, so they can never disagree.
+/// History (free): a chronological EVENT LOG of what actually happened — every taken / skipped /
+/// snoozed action (from `DoseLog`) interleaved with derived misses, grouped by day and filterable.
+/// The analytics that used to live here (streak, rates, chart) now live on the Week tab.
+///
+/// The derived "Missed" events come from `AdherenceCalculator.missedEvents`, the SAME source as Week's
+/// missed count — so the Missed filter here and "missed this week" there can never disagree.
 struct HistoryView: View {
     @Query(sort: \Medicine.name) private var medicines: [Medicine]
-    @Query(sort: \DoseLog.scheduledFor) private var logs: [DoseLog]
+    @Query(sort: \DoseLog.scheduledFor, order: .reverse) private var logs: [DoseLog]
 
     @State private var showReport = false
     @State private var showPaywall = false
+    @State private var filter: EventFilter = .all
+    @State private var search = ""
     @ObservedObject private var subscription = SubscriptionStore.shared   // re-render on entitlement change
+
+    /// Rolling window for the log — recent enough to stay fast; the full record is in the PDF export.
+    private let windowDays = 30
+
+    enum EventFilter: String, CaseIterable, Identifiable {
+        case all = "All", taken = "Taken", skipped = "Skipped", snoozed = "Snoozed", missed = "Missed"
+        var id: String { rawValue }
+        var status: DoseStatus? {
+            switch self {
+            case .all: nil
+            case .taken: .taken
+            case .skipped: .skipped
+            case .snoozed: .snoozed
+            case .missed: .missed
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -19,6 +40,7 @@ struct HistoryView: View {
                 content(now: timeline.date)
             }
             .navigationTitle("History")
+            .searchable(text: $search, prompt: "Search medicine")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     // Premium export, routed through the single entitlement seam. Non-subscribers get the
@@ -40,246 +62,165 @@ struct HistoryView: View {
 
     @ViewBuilder
     private func content(now: Date) -> some View {
+        let grouped = groupedEvents(now: now)
+
+        if medicines.isEmpty {
+            ContentUnavailableView("No history yet", systemImage: "clock.arrow.circlepath",
+                                   description: Text("Your taken, skipped, and missed doses will appear here."))
+        } else {
+            VStack(spacing: 0) {
+                filterChips
+                if grouped.isEmpty {
+                    Spacer()
+                    DoseEmptyState(icon: "line.3.horizontal.decrease.circle",
+                                   title: "Nothing to show",
+                                   message: emptyMessage)
+                    Spacer()
+                } else {
+                    List {
+                        ForEach(grouped, id: \.day) { group in
+                            Section(dayLabel(group.day, now: now)) {
+                                ForEach(group.events) { event in
+                                    HistoryEventRow(event: event)
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .background(DoseColors.groupedBackground)
+        }
+    }
+
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DoseSpacing.sm) {
+                ForEach(EventFilter.allCases) { f in
+                    FilterChip(title: f.rawValue, isSelected: filter == f) { filter = f }
+                }
+            }
+            .padding(.horizontal, DoseSpacing.lg)
+            .padding(.vertical, DoseSpacing.sm)
+        }
+    }
+
+    private var emptyMessage: String {
+        let scope = filter == .all ? "" : " \(filter.rawValue.lowercased())"
+        return search.isEmpty
+            ? "No\(scope) doses in the last \(windowDays) days."
+            : "No\(scope) doses match “\(search)”."
+    }
+
+    // MARK: - Event assembly
+
+    private struct DayGroup { let day: Date; let events: [HistoryEvent] }
+
+    private func groupedEvents(now: Date) -> [DayGroup] {
+        let cal = Calendar.current
+        let from = cal.date(byAdding: .day, value: -(windowDays - 1), to: cal.startOfDay(for: now)) ?? now
         let meds = Medicine.activeConfirmed(medicines).map { $0.snapshot() }
         let logSnaps = logs.map { $0.snapshot() }
 
-        // The single corrected source. `series` is oldest→newest; the header and the chart both slice
-        // from it, so a polished chart can never drift from the headline numbers.
-        let series = AdherenceCalculator.days(medicines: meds, logs: logSnaps, now: now, days: 30)
-        let last14 = Array(series.suffix(14))
-        let last7 = Array(series.suffix(7))
-        let streak = StreakCalculator.currentStreak(medicines: meds, logs: logSnaps, now: now)
-        let rate7 = AdherenceCalculator.rate(last7)
-        let rate30 = AdherenceCalculator.rate(series)
-
-        if meds.isEmpty {
-            ContentUnavailableView("No history yet", systemImage: "chart.bar.xaxis",
-                                   description: Text("Adherence and streaks appear once you're tracking medicines."))
-        } else {
-            ScrollView {
-                VStack(spacing: 16) {
-                    StreakBanner(streak: streak)
-                    AdherenceStatRow(rate7: rate7, rate30: rate30)
-                    AdherenceChartCard(days: last14)
-                    MissedThisWeekCard(days: last7)
-                }
-                .padding(16)
-            }
-            .background(Color(.systemGroupedBackground))
+        var events: [HistoryEvent] = []
+        // Real actions: one row per log (a take-then-skip shows both — honest action history).
+        for log in logs where log.scheduledFor >= from {
+            guard let status = status(for: log.action) else { continue }
+            events.append(HistoryEvent(id: "log-\(log.id.uuidString)", medicineID: log.medicineID,
+                                       medicineName: log.medicineName, dosage: log.dosage,
+                                       scheduledFor: log.scheduledFor, actualAt: log.actionedAt, status: status))
         }
+        // Derived misses — the SAME source Week reads, so the Missed filter matches Week's count.
+        for slot in AdherenceCalculator.missedEvents(medicines: meds, logs: logSnaps, from: from, to: now, now: now) {
+            events.append(HistoryEvent(id: "missed-\(slot.id)", medicineID: slot.medicineID,
+                                       medicineName: slot.medicineName, dosage: slot.dosage,
+                                       scheduledFor: slot.scheduledFor, actualAt: nil, status: .missed))
+        }
+
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let filtered = events.filter { event in
+            (filter.status == nil || event.status == filter.status) &&
+            (q.isEmpty || event.medicineName.lowercased().contains(q))
+        }
+
+        // Group by the dose's day; days newest → oldest, doses within a day oldest → newest (agenda order).
+        let byDay = Dictionary(grouping: filtered) { cal.startOfDay(for: $0.scheduledFor) }
+        return byDay.keys.sorted(by: >).map { day in
+            DayGroup(day: day, events: byDay[day]!.sorted { $0.scheduledFor < $1.scheduledFor })
+        }
+    }
+
+    private func status(for action: DoseAction) -> DoseStatus? {
+        switch action {
+        case .taken: .taken
+        case .skipped: .skipped
+        case .snoozed: .snoozed
+        }
+    }
+
+    private func dayLabel(_ day: Date, now: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(day) { return "Today" }
+        if cal.isDateInYesterday(day) { return "Yesterday" }
+        return day.formatted(.dateTime.weekday(.wide).month().day())
     }
 }
 
-// MARK: - Streak hero (the encouraging element)
+/// One derived history event — a real action or a computed miss. Never persisted; assembled at read time.
+private struct HistoryEvent: Identifiable {
+    let id: String
+    let medicineID: UUID
+    let medicineName: String
+    let dosage: String?
+    let scheduledFor: Date
+    let actualAt: Date?      // when acted (taken/skipped/snoozed); nil for a derived miss
+    let status: DoseStatus
+}
 
-private struct StreakBanner: View {
-    let streak: Int
+private struct HistoryEventRow: View {
+    let event: HistoryEvent
 
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "flame.fill")
-                .font(.system(size: 40, weight: .bold))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        HStack(spacing: DoseSpacing.md) {
+            Image(systemName: DoseTheme.icon(for: event.status))
+                .font(.title3)
+                .foregroundStyle(DoseTheme.color(for: event.status))
+                .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(streak)")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                Text(streak == 1 ? "day streak" : "day streak")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-            }
-            Spacer()
-            Text(encouragement)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.white.opacity(0.95))
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 130, alignment: .trailing)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(colors: [.orange, Color(red: 0.95, green: 0.45, blue: 0.2)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-        )
-    }
-
-    private var encouragement: String {
-        switch streak {
-        case 0:  "Take a dose to start your streak"
-        case 1:  "Nice start — keep it going"
-        case 2...6: "You're building a habit"
-        default: "Great consistency 🎉"
-        }
-    }
-}
-
-// MARK: - Adherence rates (clearly labelled, same source as the chart)
-
-private struct AdherenceStatRow: View {
-    let rate7: Double?
-    let rate30: Double?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            RateTile(title: "7-day", caption: "adherence", rate: rate7)
-            RateTile(title: "30-day", caption: "adherence", rate: rate30)
-        }
-    }
-}
-
-private struct RateTile: View {
-    let title: String
-    let caption: String
-    let rate: Double?      // nil = no scheduled doses in the window → neutral, not 0%/100%
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
-            Text(display)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(rate == nil ? .secondary : color)
-            Text(caption)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .doseCard()
-    }
-
-    private var display: String {
-        guard let rate else { return "—" }
-        return "\(Int((rate * 100).rounded()))%"
-    }
-
-    private var color: Color {
-        guard let rate else { return .secondary }
-        if rate >= 0.8 { return .green }
-        if rate >= 0.5 { return .orange }
-        return .red
-    }
-}
-
-// MARK: - Adherence timeline chart (shared by History and Medicine detail)
-
-/// A discrete per-day bar chart across a FIXED date axis, so one day of data reads as a single
-/// narrow bar on a real timeline — not a slab stretched across the width. Empty days render as a
-/// small neutral baseline tick rather than vanishing. Taken (green) / Skipped (grey, neutral) /
-/// Missed (red), matching the adherence math exactly.
-struct AdherenceChartCard: View {
-    let days: [DayAdherence]
-    var title: String = "Last 14 days"
-
-    private var bars: [DayBar] {
-        days.flatMap { day -> [DayBar] in
-            var out: [DayBar] = []
-            if day.taken > 0 { out.append(DayBar(date: day.date, status: "Taken", count: day.taken)) }
-            if day.skipped > 0 { out.append(DayBar(date: day.date, status: "Skipped", count: day.skipped)) }
-            if day.missed > 0 { out.append(DayBar(date: day.date, status: "Missed", count: day.missed)) }
-            return out
-        }
-    }
-    private var emptyDays: [Date] {
-        days.filter { $0.taken == 0 && $0.skipped == 0 && $0.missed == 0 }.map(\.date)
-    }
-    private var maxCount: Int { max(1, days.map { $0.taken + $0.skipped + $0.missed }.max() ?? 1) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(title).font(.headline)
-                Spacer()
-                Text("doses taken vs scheduled")
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-
-            Chart {
-                // Neutral baseline tick for empty days, so the axis always reads as a timeline.
-                ForEach(emptyDays, id: \.self) { date in
-                    PointMark(x: .value("Day", date, unit: .day), y: .value("Doses", 0))
-                        .symbolSize(20)
-                        .foregroundStyle(Color.secondary.opacity(0.25))
-                }
-                // Status bars (stacked taken/skipped/missed) for days with data.
-                ForEach(bars) { bar in
-                    BarMark(
-                        x: .value("Day", bar.date, unit: .day),
-                        y: .value("Doses", bar.count),
-                        width: .fixed(10)
-                    )
-                    .foregroundStyle(by: .value("Status", bar.status))
-                    .cornerRadius(3)
-                }
-            }
-            .chartForegroundStyleScale([
-                "Taken": DoseColors.taken,
-                // A solid, clearly-visible gray — distinct from the faint neutral tick used for
-                // empty days. Skips are shown but never scored (neutral for the % and streak).
-                "Skipped": DoseColors.neutralSolid,
-                "Missed": DoseColors.missed,
-            ])
-            .chartXScale(domain: domain)
-            .chartYScale(domain: 0...Double(maxCount))
-            .chartYAxis {
-                AxisMarks(position: .leading, values: Array(0...maxCount).map(Double.init)) {
-                    AxisGridLine(); AxisValueLabel()
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .day, count: 3)) { _ in
-                    AxisGridLine()
-                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
-                }
-            }
-            .chartLegend(position: .bottom, spacing: 12)
-            .frame(height: 200)
+            Spacer(minLength: 0)
+            StatusChip(status: event.status)
         }
-        .doseCard()
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
     }
 
-    /// Lock the x-axis to the full window (padded half a day each side) so a single day's bar
-    /// occupies one slot instead of stretching across the plot.
-    private var domain: ClosedRange<Date> {
-        let start = days.first?.date ?? .now
-        let end = days.last?.date ?? .now
-        return start.addingTimeInterval(-43_200) ... end.addingTimeInterval(43_200)
+    private var title: String {
+        if let dosage = event.dosage, !dosage.isEmpty { return "\(event.medicineName) · \(dosage)" }
+        return event.medicineName
     }
-}
 
-private struct DayBar: Identifiable {
-    let date: Date
-    let status: String
-    let count: Int
-    var id: String { "\(date.timeIntervalSince1970)-\(status)" }
-}
-
-// MARK: - Missed-this-week callout
-
-private struct MissedThisWeekCard: View {
-    let days: [DayAdherence]
-
-    var body: some View {
-        let missed = days.reduce(0) { $0 + $1.missed }
-        return HStack(spacing: 12) {
-            Image(systemName: missed == 0 ? "checkmark.seal.fill" : "exclamationmark.circle.fill")
-                .font(.title2)
-                .foregroundStyle(missed == 0 ? .green : .red)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(missed == 0 ? "Nothing missed this week" : "\(missed) missed this week")
-                    .font(.subheadline.weight(.semibold))
-                Text(missed == 0 ? "Every past-due dose was taken or skipped." : "Past-due doses with no action.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+    /// Scheduled time, plus the actual action time when it differs (a late take, a skip, a snooze).
+    private var subtitle: String {
+        let scheduled = event.scheduledFor.formatted(date: .omitted, time: .shortened)
+        guard let actualAt = event.actualAt else { return "Scheduled \(scheduled)" }
+        let acted = actualAt.formatted(date: .omitted, time: .shortened)
+        if abs(actualAt.timeIntervalSince(event.scheduledFor)) < 60 { return "Scheduled \(scheduled)" }
+        let verb: String
+        switch event.status {
+        case .taken: verb = "taken"
+        case .skipped: verb = "skipped"
+        case .snoozed: verb = "snoozed"
+        default: verb = "acted"
         }
-        .doseCard()
+        return "Scheduled \(scheduled) · \(verb) \(acted)"
     }
 }

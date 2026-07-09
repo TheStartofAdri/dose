@@ -53,7 +53,12 @@ struct RootView: View {
                         .tabItem { Label("Today", systemImage: "checklist") }
                     HistoryView()
                         .tag(1)
-                        .tabItem { Label("History", systemImage: "chart.bar.fill") }
+                        .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+                    // Week displayed 3rd (matching the mock) with a NEW tag, so Notes/Settings tags stay
+                    // stable and the -tab launch args keep working.
+                    WeekView()
+                        .tag(4)
+                        .tabItem { Label("Week", systemImage: "calendar") }
                     NotesView()
                         .tag(2)
                         .tabItem { Label("Notes", systemImage: "note.text") }
@@ -121,6 +126,7 @@ struct RootView: View {
         if let i = args.firstIndex(of: "-tab"), i + 1 < args.count {
             switch args[i + 1] {
             case "history": return 1
+            case "week": return 4
             case "notes": return 2
             case "settings": return 3
             default: return 0

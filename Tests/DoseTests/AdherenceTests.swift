@@ -319,4 +319,24 @@ final class AdherenceTests: XCTestCase {
         let days = AdherenceCalculator.days(medicines: [med], logs: [], now: now, days: 7, calendar: cal)
         XCTAssertNil(AdherenceCalculator.rate(days), "no data → neutral, not a percentage")
     }
+
+    /// PARITY: the History event log ("Missed" filter) and the Week "missed this week" count read the
+    /// SAME source — `missedEvents(...).count` equals `missedCount(days(...))` for the same window, and
+    /// the events are exactly the past-due-untaken slots (skips and takes excluded), oldest → newest.
+    func testMissedEventsMatchMissedCountForTheSameWindow() {
+        let now = at(2026, 6, 16, 12, 0)
+        let med = dailyMed(createdAt: at(2026, 6, 10))
+        let logs = [taken(2026, 6, 16), taken(2026, 6, 14), skipped(2026, 6, 13)]  // 15,12,11,10 missed
+        let from = at(2026, 6, 10), to = at(2026, 6, 16)
+
+        let days = AdherenceCalculator.days(medicines: [med], logs: logs, from: from, to: to, now: now, calendar: cal)
+        let events = AdherenceCalculator.missedEvents(medicines: [med], logs: logs, from: from, to: to, now: now, calendar: cal)
+
+        XCTAssertEqual(events.count, AdherenceCalculator.missedCount(days),
+                       "missedEvents count equals the missed count for the same window")
+        XCTAssertEqual(events.count, 4, "concretely 06-10, 06-11, 06-12, 06-15 are missed (13 skipped, 14 & 16 taken)")
+        XCTAssertEqual(events.map { cal.component(.day, from: $0.scheduledFor) }, [10, 11, 12, 15],
+                       "the missed slots are exactly the untaken past-due days, oldest → newest")
+        XCTAssertTrue(events.allSatisfy { $0.medicineID == medID }, "every event is a real slot of the medicine")
+    }
 }

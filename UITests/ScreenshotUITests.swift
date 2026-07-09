@@ -63,9 +63,10 @@ final class ScreenshotUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-skipAuth", "-seedHistoryDemo", "-tab", "history"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Last 14 days"].waitForExistence(timeout: 10),
-                      "History dashboard chart should be visible on seeded mixed data")
-        attach("04-history-below-100")
+        // History is now a filterable event log; the analytics (chart/rates) moved to the Week tab.
+        XCTAssertTrue(app.buttons["Missed"].waitForExistence(timeout: 10),
+                      "the History event log shows its filter chips on seeded data")
+        attach("04-history-event-log")
     }
 
     func testShot05MedicineDetailWithIconAndInstructions() {
@@ -236,21 +237,20 @@ final class ScreenshotUITests: XCTestCase {
         attach("18-lead-time-picker")
     }
 
-    /// Feature B: "This week" reached from the Today toolbar, showing scheduled days and a
-    /// "Nothing scheduled" gap day (seeded deterministically).
-    func testShot19ThisWeekOverview() {
+    /// The Week tab: weekly adherence analytics (ring, tiles, missed-this-week, 14-day chart).
+    func testShot19WeekOverview() {
         let app = XCUIApplication()
-        app.launchArguments = ["-skipAuth", "-seedWeekDemo"]
+        app.launchArguments = ["-skipAuth", "-seedHistoryDemo"]
         app.launch()
-        app.buttons["This week"].tap()
-        XCTAssertTrue(app.staticTexts["Iron"].waitForExistence(timeout: 10),
-                      "the week view lists scheduled medicines with their times")
-        // Scroll until the gap day's "Nothing scheduled" row is on screen, then capture.
-        let empty = app.staticTexts["Nothing scheduled"]
+        app.tabBars.buttons["Week"].tap()
+        XCTAssertTrue(app.staticTexts["This Week"].waitForExistence(timeout: 10),
+                      "the Week tab shows the weekly overview")
+        // The 14-day chart lives here now (moved off History).
+        let chart = app.staticTexts["Last 14 days"]
         var tries = 0
-        while !empty.exists && tries < 8 { app.swipeUp(); tries += 1 }
-        XCTAssertTrue(empty.waitForExistence(timeout: 5), "a day with no doses shows Nothing scheduled")
-        attach("19-this-week")
+        while !chart.exists && tries < 8 { app.swipeUp(); tries += 1 }
+        XCTAssertTrue(chart.waitForExistence(timeout: 5), "the 14-day chart renders on the Week tab")
+        attach("19-week-overview")
     }
 
     /// Fix 1: a store-load recovery surfaces a must-acknowledge notice instead of a silent empty list.

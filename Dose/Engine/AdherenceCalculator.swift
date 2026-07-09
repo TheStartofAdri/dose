@@ -148,4 +148,46 @@ enum AdherenceCalculator {
         rate(days) ?? 1
     }
 
+    /// The individual missed doses over `[from, to]` (inclusive calendar days), oldest → newest — for
+    /// the History event log and the Week "missed this week" list. This is a structural MIRROR of
+    /// `dayAdherence`'s missed branch (same day+rule iteration, same latest-log resolution, same
+    /// `now`-cutoff + lifetime floor), collecting the slots instead of counting them — so for any window
+    /// `missedEvents(...).count == missedCount(days(from:to:...))`. That invariant (locked by a test) is
+    /// what keeps History's "Missed" filter and Week's "missed this week" count in exact agreement.
+    /// A missed dose is never persisted; it's derived here at read time, exactly like Today's `.missed`.
+    static func missedEvents(
+        medicines: [MedicineSnapshot],
+        logs: [DoseLogSnapshot],
+        from: Date,
+        to: Date,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> [ScheduledSlot] {
+        var result: [ScheduledSlot] = []
+        var day = calendar.startOfDay(for: from)
+        let last = calendar.startOfDay(for: to)
+        while day <= last {
+            for medicine in medicines {
+                var seenSlots = Set<Date>()   // de-dup rules resolving to the same slot (match dayAdherence)
+                for rule in medicine.rules {
+                    guard let slot = rule.scheduledDate(on: day, calendar: calendar) else { continue }
+                    guard seenSlots.insert(slot).inserted else { continue }
+                    switch ExecutionEngine.latestLog(medicineID: medicine.id, scheduledFor: slot, in: logs)?.action {
+                    case .taken, .skipped:
+                        break   // settled → not missed
+                    case .snoozed, .none:
+                        if now > slot && ExecutionEngine.isWithinLifetime(
+                            scheduledFor: slot, createdAt: medicine.createdAt,
+                            endDate: medicine.endDate, calendar: calendar) {
+                            result.append(ScheduledSlot(medicineID: medicine.id, medicineName: medicine.name,
+                                                        dosage: medicine.dosage, scheduledFor: slot))
+                        }
+                    }
+                }
+            }
+            day = calendar.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
+        }
+        return result.sorted { $0.scheduledFor < $1.scheduledFor }
+    }
+
 }
