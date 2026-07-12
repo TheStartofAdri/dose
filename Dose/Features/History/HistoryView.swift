@@ -197,7 +197,6 @@ private struct HistoryEventRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            StatusChip(status: event.status)
         }
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
@@ -208,19 +207,16 @@ private struct HistoryEventRow: View {
         return event.medicineName
     }
 
-    /// Scheduled time, plus the actual action time when it differs (a late take, a skip, a snooze).
+    /// The status word (so every row states Taken/Skipped/Snoozed/Missed now that the pill is gone),
+    /// the scheduled time, and the actual action time when it differs (a late take, a skip, a snooze).
     private var subtitle: String {
         let scheduled = event.scheduledFor.formatted(date: .omitted, time: .shortened)
-        guard let actualAt = event.actualAt else { return "Scheduled \(scheduled)" }
-        let acted = actualAt.formatted(date: .omitted, time: .shortened)
-        if abs(actualAt.timeIntervalSince(event.scheduledFor)) < 60 { return "Scheduled \(scheduled)" }
-        let verb: String
-        switch event.status {
-        case .taken: verb = "taken"
-        case .skipped: verb = "skipped"
-        case .snoozed: verb = "snoozed"
-        default: verb = "acted"
+        let status = DoseTheme.label(for: event.status)   // "Taken" / "Skipped" / "Snoozed" / "Missed"
+        guard let actualAt = event.actualAt,
+              abs(actualAt.timeIntervalSince(event.scheduledFor)) >= 60 else {
+            return "\(status) · \(scheduled)"
         }
-        return "Scheduled \(scheduled) · \(verb) \(acted)"
+        let acted = actualAt.formatted(date: .omitted, time: .shortened)
+        return "\(status) · scheduled \(scheduled), logged \(acted)"
     }
 }
