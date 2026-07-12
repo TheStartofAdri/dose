@@ -78,7 +78,7 @@ struct AdherenceChartCard: View {
             .chartLegend(position: .bottom, spacing: 12)
             .frame(height: 200)
         }
-        .doseCard()
+        .doseCardStyle()
     }
 
     /// Lock the x-axis to the full window (padded half a day each side) so a single day's bar occupies

@@ -43,11 +43,20 @@ struct DoseCardView: View {
 
     var body: some View {
         layout
-            .doseCard(verticalPadding: 12)
+            // Opaque card matching the rest of the app (Week/Detail/Notes), with the settled-state tint
+            // as the card fill itself (it used to show through the frosted material) + a hairline edge
+            // and the soft elevation. Padding/radius are unchanged so the Today card geometry is identical.
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(settled ? accent.opacity(0.10) : .clear)
+                RoundedRectangle(cornerRadius: DoseRadius.card, style: .continuous)
+                    .fill(settled ? accent.opacity(0.12) : DoseColors.cardBackground)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: DoseRadius.card, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+            )
+            .doseElevation()
             // Tapping the card (anywhere except the Take/Undo and ⋯ buttons, which capture their own
             // taps) opens the medicine detail. Keeps the name a plain, queryable label.
             .contentShape(Rectangle())
