@@ -145,9 +145,10 @@ struct WeekView: View {
 
     private func tiles(taken: Int, skipped: Int, snoozed: Int, total: Int) -> some View {
         HStack {
-            StatTile(value: "\(taken)", label: "Taken", tint: DoseColors.taken)
+            // Only colour a non-zero count — a "0 Snoozed" shouldn't draw the eye in blue.
+            StatTile(value: "\(taken)", label: "Taken", tint: taken > 0 ? DoseColors.taken : DoseColors.neutral)
             StatTile(value: "\(skipped)", label: "Skipped")
-            StatTile(value: "\(snoozed)", label: "Snoozed", tint: DoseColors.snoozed)
+            StatTile(value: "\(snoozed)", label: "Snoozed", tint: snoozed > 0 ? DoseColors.snoozed : DoseColors.neutral)
             StatTile(value: "\(total)", label: "Total")
         }
         .doseCardStyle()
