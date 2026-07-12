@@ -114,8 +114,10 @@ struct MedicineDetailView: View {
                             Image(systemName: DoseTheme.icon(for: todaysDose.status))
                                 .foregroundStyle(DoseTheme.color(for: todaysDose.status))
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("Due \(todaysDose.scheduledFor.formatted(date: .omitted, time: .shortened))")
-                                    .foregroundStyle(.primary)
+                                // Status word + time, coloured by status — same semantics as Today (amber
+                                // due / red missed), not the button's accent-blue.
+                                Text("\(DoseTheme.label(for: todaysDose.status)) · \(todaysDose.scheduledFor.formatted(date: .omitted, time: .shortened))")
+                                    .foregroundStyle(DoseTheme.color(for: todaysDose.status))
                                 Text("Tap to log this dose").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -123,6 +125,8 @@ struct MedicineDetailView: View {
                         }
                         .contentShape(Rectangle())
                     }
+                    // Plain style so the button doesn't recolour its whole label with the accent tint.
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Log today's dose for \(medicine.name)")
                 }
             }
