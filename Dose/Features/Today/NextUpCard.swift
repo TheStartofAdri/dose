@@ -56,7 +56,7 @@ struct NextUpCard: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, DoseSpacing.md)
-                        .background(DoseColors.accent, in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
+                        .background(DoseColors.taken, in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)

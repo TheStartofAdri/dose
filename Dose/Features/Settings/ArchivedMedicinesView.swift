@@ -17,8 +17,13 @@ struct ArchivedMedicinesView: View {
         Group {
             if archived.isEmpty {
                 // Never a broken empty screen — also covers unarchiving/deleting the last one in place.
-                ContentUnavailableView("No archived medicines", systemImage: "archivebox",
-                                       description: Text("Medicines you archive appear here, where you can restore or delete them."))
+                VStack {
+                    Spacer()
+                    DoseEmptyState(icon: "archivebox",
+                                   title: "No archived medicines",
+                                   message: "Medicines you archive appear here, where you can restore or delete them.")
+                    Spacer()
+                }
             } else {
                 List {
                     ForEach(archived) { med in
@@ -39,12 +44,7 @@ struct ArchivedMedicinesView: View {
 
     private func row(_ med: Medicine) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: MedAppearance.icon(med.iconName))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(MedAppearance.color(med.colorHex), in: Circle())
-                .accessibilityHidden(true)
+            MedicineIconBadge(iconName: med.iconName, colorHex: med.colorHex, size: 30)
             VStack(alignment: .leading, spacing: 1) {
                 Text(med.name).font(.headline)
                 if let dosage = med.dosage, !dosage.isEmpty {

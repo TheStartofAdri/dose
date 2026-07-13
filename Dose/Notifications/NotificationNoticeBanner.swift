@@ -7,7 +7,7 @@ import UIKit
 /// it appears/updates as that state changes. Gate the call site on `NotificationStatus.shared.hasNotice`
 /// so it (and any surrounding padding) takes no space when reminders are healthy.
 struct NotificationNoticeBanner: View {
-    /// `.card` = standalone (Today, with `.doseCard()`); `.plain` = inside a Form row (Settings).
+    /// `.card` = standalone (Today, opaque `.doseCardStyle()`); `.plain` = inside a Form row (Settings).
     enum Style { case card, plain }
     var style: Style = .card
 
@@ -15,12 +15,12 @@ struct NotificationNoticeBanner: View {
 
     var body: some View {
         if status.remindersDisabled {
-            banner(icon: "bell.slash.fill", tint: .red,
+            banner(icon: "bell.slash.fill", tint: DoseColors.missed,
                    title: "Reminders are off",
                    message: "Turn on notifications so Dose can remind you to take your medicine.",
                    actionTitle: "Open Settings", action: openSettings)
         } else if status.schedulingTruncated {
-            banner(icon: "exclamationmark.triangle.fill", tint: .orange,
+            banner(icon: "exclamationmark.triangle.fill", tint: DoseColors.due,
                    title: "Some reminders couldn't be scheduled",
                    message: "You have more active reminders than iOS allows at once, so the soonest ones were kept. Consider fewer medicines or times.",
                    actionTitle: nil, action: nil)
@@ -44,7 +44,7 @@ struct NotificationNoticeBanner: View {
             }
             Spacer(minLength: 0)
         }
-        if style == .card { row.doseCard() } else { row }
+        if style == .card { row.doseCardStyle() } else { row }
     }
 
     private func openSettings() {

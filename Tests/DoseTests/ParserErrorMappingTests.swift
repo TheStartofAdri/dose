@@ -51,4 +51,60 @@ final class ParserErrorMappingTests: XCTestCase {
         XCTAssertFalse(ParserError.isUnreachableSignal(URLError(.badServerResponse)),  "-1011 is not")
         XCTAssertFalse(ParserError.isUnreachableSignal(NSError(domain: "x", code: 1)), "non-URLError is not")
     }
+
+    // MARK: - HTTP status → ParserError (extracted from parse() so it's testable without a URLSession)
+
+    private func errorBody(_ error: String) -> Data {
+        try! JSONSerialization.data(withJSONObject: ["error": error])
+    }
+
+    func testStatus200ProceedsToDecode() {
+        XCTAssertNil(RemoteMedicationParser.error(forStatus: 200, body: Data()),
+                     "a 200 returns nil so parse() decodes the body")
+    }
+
+    func testStatus500WithMissingKeyIsNotConfigured() {
+        guard case .notConfigured = RemoteMedicationParser.error(forStatus: 500, body: errorBody("server_misconfigured")) else {
+            return XCTFail("only the explicit server_misconfigured 500 is .notConfigured")
+        }
+    }
+
+    /// AI1: a bare/uncaught 500 (e.g. a transient upstream fault) must NOT be mislabeled "AI isn't set
+    /// up" — it maps to a transient `.server(500)` the user can retry.
+    func testStatus500OtherwiseIsTransientServerError() {
+        guard case .server(500) = RemoteMedicationParser.error(forStatus: 500, body: Data()) else {
+            return XCTFail("a non-misconfigured 500 must be a transient .server(500), not .notConfigured")
+        }
+    }
+
+    /// AI5: an over-length input (400 "too_long") surfaces the actionable message, not a generic code.
+    func testStatus400TooLongIsSurfaced() {
+        guard case .tooLong = RemoteMedicationParser.error(forStatus: 400, body: errorBody("too_long")) else {
+            return XCTFail("a too_long 400 maps to .tooLong")
+        }
+        guard case .server(400) = RemoteMedicationParser.error(forStatus: 400, body: errorBody("invalid_request")) else {
+            return XCTFail("other 400s stay a generic .server(400)")
+        }
+    }
+
+    func testStatus422RefusalAndIncomplete() {
+        guard case .refusal = RemoteMedicationParser.error(forStatus: 422, body: errorBody("refusal")) else {
+            return XCTFail("refusal")
+        }
+        guard case .incomplete = RemoteMedicationParser.error(forStatus: 422, body: errorBody("incomplete")) else {
+            return XCTFail("incomplete")
+        }
+    }
+
+    /// AI2: a present-but-unknown `confidence` (a future server value) must default to `.low`, not fail
+    /// the whole parse with `dataCorrupted`. `decodeIfPresent` alone was NOT lenient to unknown values.
+    func testUnknownConfidenceStringDecodesToLowWithoutThrowing() throws {
+        let json = Data("""
+        {"medicines":[{"name":"Aspirin","dosage":null,"form":null,"frequency":null,"schedule":[],
+        "quantity":null,"scheduleInferred":false,"uncertainFields":[],"confidence":"very-low",
+        "requiresReview":true}]}
+        """.utf8)
+        let resp = try JSONDecoder().decode(ParseMedicationResponse.self, from: json)
+        XCTAssertEqual(resp.medicines.first?.confidence, .low, "an unknown confidence falls back to .low")
+    }
 }

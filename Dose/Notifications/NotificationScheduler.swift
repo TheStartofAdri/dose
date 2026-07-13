@@ -13,6 +13,11 @@ import os
 final class NotificationScheduler {
     static let shared = NotificationScheduler()
     static let categoryID = "DOSE_REMINDER"
+    /// Lead-time heads-ups ("coming up in N min") use their own category so they can OMIT the snooze
+    /// action — a heads-up snooze has no `.snoozed` log and so can't be rebuilt after a reschedule's
+    /// wipe (N1); offering it would be a promise the refill silently breaks. The real on-time reminder
+    /// is already scheduled, so a heads-up needs only Take + Skip.
+    static let leadTimeCategoryID = "DOSE_LEADTIME"
 
     // Action identifiers (shared with the action handler).
     static let takeAction = "TAKE"
@@ -20,8 +25,10 @@ final class NotificationScheduler {
     static let skipAction = "SKIP"
 
     private let center = UNUserNotificationCenter.current()
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.thestartofadri.dose",
-                                       category: "notifications")
+    // `nonisolated` (os.Logger is Sendable) so the `center.add` completion — a Sendable closure that may
+    // run off the main actor — can log without the Swift-6 main-actor-isolation warning.
+    nonisolated private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.thestartofadri.dose",
+                                                   category: "notifications")
     /// Removal sink for `cancelSlot` — overridable in tests to capture cancelled ids without the live
     /// notification center. `nil` → the real center.
     var removePending: (([String]) -> Void)?
@@ -49,15 +56,22 @@ final class NotificationScheduler {
         NotificationStatus.shared.remindersDisabled = NotificationStatus.shouldWarn(for: settings.authorizationStatus)
     }
 
-    func registerCategories() {
-        // Unambiguous labels for a medication reminder (behavior unchanged).
-        let take = UNNotificationAction(identifier: Self.takeAction, title: "Take", options: [])
-        let snooze = UNNotificationAction(identifier: Self.snoozeAction, title: "Remind in 10 min", options: [])
-        let skip = UNNotificationAction(identifier: Self.skipAction, title: "Skip today", options: [.destructive])
-        let category = UNNotificationCategory(identifier: Self.categoryID,
-                                              actions: [take, snooze, skip],
+    /// The notification categories, as a pure value so a test can assert their actions without the live
+    /// center. A dose reminder carries Take + "Remind in 10 min" + Skip; a lead-time heads-up carries
+    /// only Take + Skip (no un-durable snooze — see `leadTimeCategoryID`).
+    static func categories() -> [UNNotificationCategory] {
+        let take = UNNotificationAction(identifier: takeAction, title: "Take", options: [])
+        let snooze = UNNotificationAction(identifier: snoozeAction, title: "Remind in 10 min", options: [])
+        let skip = UNNotificationAction(identifier: skipAction, title: "Skip today", options: [.destructive])
+        let dose = UNNotificationCategory(identifier: categoryID, actions: [take, snooze, skip],
+                                          intentIdentifiers: [], options: [])
+        let leadTime = UNNotificationCategory(identifier: leadTimeCategoryID, actions: [take, skip],
                                               intentIdentifiers: [], options: [])
-        center.setNotificationCategories([category])
+        return [dose, leadTime]
+    }
+
+    func registerCategories() {
+        center.setNotificationCategories(Set(Self.categories()))
     }
 
     /// Rebuilds the entire schedule from the current confirmed medicines and their logs. `logs` lets the
@@ -170,7 +184,8 @@ final class NotificationScheduler {
         }
         content.body = dosage.map { "Take \($0)" } ?? "Tap to mark as taken."
         content.sound = SettingsKeys.soundEnabled_default ? .default : nil
-        content.categoryIdentifier = categoryID
+        // A heads-up uses the snooze-free lead-time category; every real dose reminder keeps the full one.
+        content.categoryIdentifier = leadMinutes != nil ? leadTimeCategoryID : categoryID
         content.interruptionLevel = .timeSensitive
         content.userInfo = userInfo
         return content
@@ -194,6 +209,14 @@ final class NotificationScheduler {
         let ids = NotificationPlanner.slotIDs(medicineID, scheduledFor)
         if let removePending { removePending(ids) }
         else { center.removePendingNotificationRequests(withIdentifiers: ids) }
+    }
+
+    /// Awaits a round-trip to the notification center. Because the center serializes requests, this
+    /// returns only after the just-submitted `add(_:)` calls (whose completions `reschedule` does not
+    /// await) have been enqueued — so `BackgroundRefresh` can wait for the refill to flush before it
+    /// completes the BGTask, instead of risking suspension mid-enqueue (N2).
+    func pendingRequestsSettled() async {
+        _ = await center.pendingNotificationRequests()
     }
 
     /// Schedules a fresh one-shot reminder `NotificationPlanner.escalationDelay` from now (Snooze), tied

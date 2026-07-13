@@ -65,8 +65,13 @@ struct HistoryView: View {
         let grouped = groupedEvents(now: now)
 
         if medicines.isEmpty {
-            ContentUnavailableView("No history yet", systemImage: "clock.arrow.circlepath",
-                                   description: Text("Your taken, skipped, and missed doses will appear here."))
+            VStack {
+                Spacer()
+                DoseEmptyState(icon: "clock.arrow.circlepath",
+                               title: "No history yet",
+                               message: "Your taken, skipped, and missed doses will appear here.")
+                Spacer()
+            }
         } else {
             VStack(spacing: 0) {
                 filterChips

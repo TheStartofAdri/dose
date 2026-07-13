@@ -90,6 +90,17 @@ final class EditableDraftTests: XCTestCase {
         XCTAssertTrue(draft.blocksConfirm, "an empty name blocks confirm regardless of acknowledgements")
     }
 
+    /// AI3: a MEDIUM-confidence draft whose name the parser flagged uncertain must still require review
+    /// — the gate no longer keys off `.low` confidence alone, matching the server's `requiresReview`.
+    /// FAIL-BEFORE: the `confidence == .low` guard meant a medium+uncertain name wasn't flagged.
+    func testMediumConfidenceUncertainNameIsFlagged() {
+        let draft = EditableDraft(name: "Asprin", dosage: "100 mg", times: [.now],
+                                  source: .ai, uncertainFields: ["name"], confidence: .medium)
+        XCTAssertTrue(draft.mustReview("name"), "an uncertain name is must-review even at medium confidence")
+        XCTAssertTrue(draft.blocksConfirm)
+        XCTAssertFalse(draft.mustReview("dosage"), "a field the parser didn't flag isn't blocked")
+    }
+
     /// A high-confidence (or non-flagged) AI draft carries no must-review flags and confirms freely.
     func testHighConfidenceAIDraftHasNoFlags() {
         let draft = EditableDraft(name: "Aspirin", dosage: "100 mg", times: [.now],

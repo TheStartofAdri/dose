@@ -52,7 +52,20 @@ struct WeekView: View {
         let taken = weekDays.reduce(0) { $0 + $1.taken }
         let skipped = weekDays.reduce(0) { $0 + $1.skipped }
         let missed = AdherenceCalculator.missedCount(weekDays)
-        let snoozed = logSnaps.filter { $0.action == .snoozed && $0.scheduledFor >= weekStart && $0.scheduledFor <= weekEnd }.count
+        // Distinct in-window slots whose LATEST log is still a snooze, among the active confirmed meds —
+        // mirrors how taken/skipped/missed are resolved. (Was: raw `.snoozed` log count, which double-
+        // counted a re-snoozed dose, still counted one later taken/skipped, and included archived/deleted meds.)
+        let activeIDs = Set(meds.map { $0.id })
+        let snoozed = Set(
+            logSnaps
+                .filter { log in
+                    log.action == .snoozed && activeIDs.contains(log.medicineID)
+                        && log.scheduledFor >= weekStart && log.scheduledFor <= weekEnd
+                        && ExecutionEngine.latestLog(medicineID: log.medicineID,
+                                                     scheduledFor: log.scheduledFor, in: logSnaps)?.action == .snoozed
+                }
+                .map { "\($0.medicineID)-\(Int($0.scheduledFor.timeIntervalSince1970))" }
+        ).count
         let total = taken + skipped + missed
         let missedList = AdherenceCalculator.missedEvents(medicines: meds, logs: logSnaps, from: weekStart, to: weekEnd, now: now)
         let chart14 = AdherenceCalculator.days(medicines: meds, logs: logSnaps, now: now, days: 14)
@@ -89,6 +102,8 @@ struct WeekView: View {
         HStack {
             Button { weekOffset -= 1 } label: {
                 Image(systemName: "chevron.left").font(.headline)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Previous week")
             Spacer()
@@ -100,6 +115,8 @@ struct WeekView: View {
             Spacer()
             Button { weekOffset += 1 } label: {
                 Image(systemName: "chevron.right").font(.headline)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Next week")
         }

@@ -59,26 +59,31 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
         case UNNotificationDefaultActionIdentifier where !Self.isDosePrompt(kind):
             return nil
 
-        // "Remind in 10 min" on a heads-up arms an extra nudge but leaves the slot alone: the dose
-        // isn't due, so no `.snoozed` log (it would distort an upcoming dose's status) and the real
-        // on-time reminder must survive.
+        // A heads-up no longer offers Snooze (its lead-time category omits the action), because a
+        // heads-up snooze has no `.snoozed` log and so is silently destroyed by the next reschedule
+        // (N1) — and the real on-time reminder is already scheduled. Defensive no-op for any legacy
+        // heads-up still delivered with the old button.
         case NotificationScheduler.snoozeAction where !Self.isDosePrompt(kind):
-            NotificationScheduler.shared.scheduleSnooze(medicineID: medicineID, medicineName: name,
-                                                        dosage: dosage, scheduledFor: scheduledFor)
             return nil
 
+        // Each branch cancels the slot only AFTER the log persisted: if the save failed, `log(...)`
+        // returns nil and we leave the pending reminder/escalation intact so the dose is re-prompted
+        // rather than silently lost (C2).
         case NotificationScheduler.takeAction, UNNotificationDefaultActionIdentifier:
-            let log = log(.taken, medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
+            guard let log = log(.taken, medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
+            else { return nil }
             NotificationScheduler.shared.cancelSlot(medicineID: medicineID, scheduledFor: scheduledFor)
             return log
 
         case NotificationScheduler.skipAction:
-            let log = log(.skipped, medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
+            guard let log = log(.skipped, medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
+            else { return nil }
             NotificationScheduler.shared.cancelSlot(medicineID: medicineID, scheduledFor: scheduledFor)
             return log
 
         case NotificationScheduler.snoozeAction:
-            let log = log(.snoozed, medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
+            guard let log = log(.snoozed, medicineID: medicineID, name: name, dosage: dosage, scheduledFor: scheduledFor)
+            else { return nil }
             NotificationScheduler.shared.cancelSlot(medicineID: medicineID, scheduledFor: scheduledFor)
             NotificationScheduler.shared.scheduleSnooze(medicineID: medicineID, medicineName: name,
                                                         dosage: dosage, scheduledFor: scheduledFor)
@@ -90,11 +95,12 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
     }
 
     @discardableResult
-    private func log(_ action: DoseAction, medicineID: UUID, name: String, dosage: String?, scheduledFor: Date) -> DoseLog {
+    private func log(_ action: DoseAction, medicineID: UUID, name: String, dosage: String?, scheduledFor: Date) -> DoseLog? {
         // Write to the OBSERVED main context (not a detached `ModelContext(container)`), so a skip/take
         // taken from a notification is reflected live by the History/Today @Query without a reload.
-        DoseActionWriter.record(action, medicineID: medicineID, medicineName: name, dosage: dosage,
-                                scheduledFor: scheduledFor, into: container.mainContext)
+        // `try?` — a save failure returns nil so the caller keeps the reminder instead of cancelling it.
+        try? DoseActionWriter.record(action, medicineID: medicineID, medicineName: name, dosage: dosage,
+                                     scheduledFor: scheduledFor, into: container.mainContext)
     }
 
     /// Escalations carry an exact `scheduledFor`; repeating base reminders carry only hour/minute,

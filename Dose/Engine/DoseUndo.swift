@@ -11,7 +11,10 @@ enum DoseUndo {
     /// undo → no reschedule). `scheduler`/`now` are injectable for tests.
     @discardableResult
     static func undo(medicineID: UUID, scheduledFor: Date, context: ModelContext, escalationEnabled: Bool,
-                     scheduler: NotificationScheduler = .shared, now: Date = .now) -> Int {
+                     scheduler: NotificationScheduler? = nil, now: Date = .now) -> Int {
+        // Resolve `.shared` inside the @MainActor body rather than as a default argument (a nonisolated
+        // context, which warns under Swift 6). Callers/tests can still inject a scheduler.
+        let scheduler = scheduler ?? .shared
         let toDelete = ((try? context.fetch(FetchDescriptor<DoseLog>())) ?? []).filter {
             $0.medicineID == medicineID && ExecutionEngine.sameSlot($0.scheduledFor, scheduledFor)
         }

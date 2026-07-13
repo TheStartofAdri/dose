@@ -36,9 +36,9 @@ struct DoseActionSheet: View {
             .padding(.top, DoseSpacing.md)
 
             HStack(spacing: DoseSpacing.lg) {
-                bigButton("Taken", icon: "checkmark", color: DoseColors.taken,
+                bigButton("Take", icon: "checkmark", color: DoseColors.taken,
                           a11y: "Mark \(dose.medicineName) taken") { onTake(); dismiss() }
-                bigButton("Skipped", icon: "minus", color: DoseColors.neutral,
+                bigButton("Skip", icon: "minus", color: DoseColors.neutral,
                           a11y: "Skip \(dose.medicineName) today") { onSkip(); dismiss() }
                 if offersSnooze {
                     bigButton("Snooze", icon: "clock", color: DoseColors.snoozed,

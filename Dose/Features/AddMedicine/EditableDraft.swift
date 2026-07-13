@@ -137,18 +137,20 @@ final class EditableDraft: Identifiable {
         self.scheduleInferred = scheduleInferred
         self.confidence = confidence
 
-        // Only low-confidence flags are "must review" — and those are ACKNOWLEDGEABLE (a correct value
-        // can be confirmed without editing). An empty name is enforced separately by `trimmedName`.
+        // Any field the parser flagged as uncertain is "must review" — matching the server's own
+        // `requiresReview` signal (confidence != high, OR any uncertainFields, OR an inferred schedule),
+        // so a MEDIUM-confidence draft with an uncertain name/dosage is caught too, not only a low one
+        // (AI3). These flags are ACKNOWLEDGEABLE (a correct value can be confirmed without editing); an
+        // empty name is enforced separately by `trimmedName`.
         var must = Set<String>()
-        if source != .manual && confidence == .low {
+        if source != .manual {
             if uncertainFields.contains("name") { must.insert("name") }
             if uncertainFields.contains("dosage") { must.insert("dosage") }
         }
-        // An inferred or low-confidence SCHEDULE is also must-review: a wrong cadence is a dosing-safety
-        // error, and is otherwise the easiest wrong value to confirm. `scheduleInferred` flags it
-        // regardless of overall confidence — an inferred schedule is a guess even on a confidently-parsed
-        // drug. Acknowledgeable + editable exactly like name/dosage (no parallel mechanism).
-        if source != .manual && (scheduleInferred || (confidence == .low && uncertainFields.contains("schedule"))) {
+        // An inferred OR flagged SCHEDULE is also must-review: a wrong cadence is a dosing-safety error
+        // and the easiest wrong value to confirm. `scheduleInferred` flags it regardless of overall
+        // confidence — an inferred schedule is a guess even on a confidently-parsed drug.
+        if source != .manual && (scheduleInferred || uncertainFields.contains("schedule")) {
             must.insert("schedule")
         }
         self.mustEdit = must

@@ -15,6 +15,7 @@ struct TodayView: View {
     @State private var deleting: Medicine?
     @State private var detailMedicine: Medicine?
     @State private var actionSheetDose: TodayDose?
+    @State private var actionError: String?
 
     var body: some View {
         NavigationStack {
@@ -43,14 +44,32 @@ struct TodayView: View {
                     onSnooze: { minutes in record(.snoozed, for: dose, minutes: minutes) }
                 )
             }
+            .alert("Couldn't save that dose", isPresented: actionErrorBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(actionError ?? "Please try again.")
+            }
         }
+    }
+
+    private var actionErrorBinding: Binding<Bool> {
+        Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
     }
 
     @ViewBuilder
     private func content(now: Date) -> some View {
         let doses = ExecutionEngine.todaysDoses(confirmedMedicines: medicines, logs: logs, now: now)
         if doses.isEmpty {
-            emptyState
+            if Medicine.activeConfirmed(medicines).isEmpty {
+                emptyState                       // genuinely no medicines yet
+            } else {
+                // Has active medicines, just none due today (specific weekdays / every-N-days / a
+                // finished course) — a rest day, NOT an empty app. Keep the date + streak header.
+                VStack(spacing: 0) {
+                    header(now: now)
+                    restDayState
+                }
+            }
         } else {
             VStack(spacing: 0) {
                 header(now: now)
@@ -96,13 +115,13 @@ struct TodayView: View {
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
                             if !dose.status.isSettled {
                                 Button { record(.taken, for: dose) } label: { Label("Take", systemImage: "checkmark") }
-                                    .tint(.green)
+                                    .tint(DoseColors.taken)
                             }
                         }
                         .swipeActions(edge: .trailing) {
                             if !dose.status.isSettled {
                                 Button { record(.skipped, for: dose) } label: { Label("Skip today", systemImage: "minus.circle") }
-                                    .tint(.gray)
+                                    .tint(DoseColors.neutralSolid)
                             }
                         }
                         // Per-row confirmations so the popover anchors to the exact card whose ⋯ was tapped.
@@ -143,16 +162,29 @@ struct TodayView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No medicines yet", systemImage: "pills.fill")
-        } description: {
-            Text("Add your first medicine to start tracking doses.")
-        } actions: {
-            Button { showingAdd = true } label: {
-                Label("Add medicine", systemImage: "plus")
-                    .font(.headline)
+        VStack {
+            Spacer()
+            DoseEmptyState(icon: "pills.fill",
+                           title: "No medicines yet",
+                           message: "Add your first medicine to start tracking doses.") {
+                Button { showingAdd = true } label: {
+                    Label("Add medicine", systemImage: "plus").font(.headline)
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+    }
+
+    /// Shown when the user HAS active medicines but none are scheduled today — a rest day, distinct from
+    /// the "no medicines yet" first-run state so a real user isn't told to add their first medicine.
+    private var restDayState: some View {
+        VStack {
+            Spacer()
+            DoseEmptyState(icon: "checkmark.circle",
+                           title: "Nothing scheduled today",
+                           message: "You have no doses due today. Your schedule picks back up automatically.")
+            Spacer()
         }
     }
 
@@ -160,10 +192,18 @@ struct TodayView: View {
 
     private func record(_ action: DoseAction, for dose: TodayDose, minutes: Int? = nil) {
         let snoozeMinutes = action == .snoozed ? (minutes ?? 10) : nil
-        // `context` is the injected main (observed) context, so the @Query updates live.
-        DoseActionWriter.record(action, medicineID: dose.medicineID, medicineName: dose.medicineName,
-                                dosage: dose.dosage, scheduledFor: dose.scheduledFor,
-                                snoozeMinutes: snoozeMinutes, into: context)
+        // `context` is the injected main (observed) context, so the @Query updates live. Only proceed to
+        // cancel the reminder + show success once the save actually persisted (C2): a failed write leaves
+        // the reminder intact and surfaces an error instead of a false "done".
+        do {
+            try DoseActionWriter.record(action, medicineID: dose.medicineID, medicineName: dose.medicineName,
+                                        dosage: dose.dosage, scheduledFor: dose.scheduledFor,
+                                        snoozeMinutes: snoozeMinutes, into: context)
+        } catch {
+            Haptics.error()
+            actionError = "Couldn't save that dose. Please try again."
+            return
+        }
 
         switch action {
         case .taken:

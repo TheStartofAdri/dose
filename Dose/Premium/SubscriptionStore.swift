@@ -96,6 +96,11 @@ final class SubscriptionStore: ObservableObject {
 
     /// Recompute `isPremium` from current entitlements and `hasEverSubscribed` from all transactions.
     func refresh() async {
+        #if DEBUG
+        // A test-forced entitlement stays authoritative — otherwise a foreground `refresh()` (e.g. the
+        // scenePhase re-check) would recompute from the empty StoreKit test session and wipe it.
+        if forcedForTesting { return }
+        #endif
         var current: [EntitlementSnapshot] = []
         for await result in Transaction.currentEntitlements {
             guard case .verified(let txn) = result, Self.productIDs.contains(txn.productID) else { continue }
@@ -119,9 +124,18 @@ final class SubscriptionStore: ObservableObject {
         do {
             switch try await product.purchase() {
             case .success(let verification):
-                if case .verified(let txn) = verification { await txn.finish() }
-                await refresh()
-            case .userCancelled, .pending:
+                switch verification {
+                case .verified(let txn):
+                    await txn.finish()
+                    await refresh()
+                case .unverified:
+                    // Purchase succeeded but the receipt couldn't be verified — don't grant; tell the user.
+                    lastError = "That purchase couldn't be verified. Please try again."
+                }
+            case .pending:
+                // Deferred (e.g. Ask to Buy / SCA) — surface it so the paywall doesn't look like a no-op.
+                lastError = "Your purchase is pending approval. You'll get access once it's approved."
+            case .userCancelled:
                 break
             @unknown default:
                 break

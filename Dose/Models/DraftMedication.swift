@@ -61,7 +61,13 @@ struct DraftMedication: Codable, Identifiable, Hashable {
         quantity = try c.decodeIfPresent(String.self, forKey: .quantity)
         scheduleInferred = try c.decodeIfPresent(Bool.self, forKey: .scheduleInferred) ?? false
         uncertainFields = try c.decodeIfPresent([String].self, forKey: .uncertainFields) ?? []
-        confidence = try c.decodeIfPresent(Confidence.self, forKey: .confidence) ?? .low
+        // Truly lenient: decode the raw string and map an unknown/new value to `.low` rather than
+        // throwing `dataCorrupted` — a server-side enum tweak must never fail the whole parse (AI2).
+        if let raw = try c.decodeIfPresent(String.self, forKey: .confidence) {
+            confidence = Confidence(rawValue: raw) ?? .low
+        } else {
+            confidence = .low
+        }
         requiresReview = try c.decodeIfPresent(Bool.self, forKey: .requiresReview) ?? true
     }
 }

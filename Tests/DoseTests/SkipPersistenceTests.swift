@@ -41,8 +41,8 @@ final class SkipPersistenceTests: XCTestCase {
         let slot = cal.date(bySettingHour: 8, minute: 0, second: 0,
                             of: cal.date(byAdding: .day, value: -1, to: .now)!)!
 
-        DoseActionWriter.record(.skipped, medicineID: med.id, medicineName: med.name, dosage: nil,
-                                scheduledFor: slot, into: main)
+        try DoseActionWriter.record(.skipped, medicineID: med.id, medicineName: med.name, dosage: nil,
+                                    scheduledFor: slot, into: main)
 
         let logs = try main.fetch(FetchDescriptor<DoseLog>())
         XCTAssertTrue(logs.contains { $0.action == .skipped && ExecutionEngine.sameSlot($0.scheduledFor, slot) },
@@ -73,5 +73,24 @@ final class SkipPersistenceTests: XCTestCase {
                       "the skip must be written to the OBSERVED context so a live @Query updates")
         XCTAssertEqual(try container.mainContext.fetch(FetchDescriptor<DoseLog>())
             .filter { $0.action == .skipped }.count, 1)
+    }
+
+    /// C2: a save failure must PROPAGATE (not be swallowed and reported as success), and the just-
+    /// inserted log must be cleaned up so no phantom row lingers in the observed context.
+    /// FAIL-BEFORE: `record` swallowed the error and returned the log — no throw, and the phantom insert
+    /// stayed. PASS-AFTER: it throws and leaves the context empty.
+    @MainActor
+    func testRecordThrowsAndLeavesNoPhantomOnSaveFailure() throws {
+        let container = try freshContainer()
+        let main = container.mainContext
+        DoseActionWriter.forceSaveFailureForTesting = true
+        defer { DoseActionWriter.forceSaveFailureForTesting = false }
+
+        XCTAssertThrowsError(
+            try DoseActionWriter.record(.taken, medicineID: UUID(), medicineName: "X", dosage: nil,
+                                        scheduledFor: .now, into: main),
+            "a failed save must propagate, not read as success")
+        XCTAssertTrue(try main.fetch(FetchDescriptor<DoseLog>()).isEmpty,
+                      "the unsaved phantom log is removed after a failed save")
     }
 }

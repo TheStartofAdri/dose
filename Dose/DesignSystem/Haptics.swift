@@ -10,4 +10,10 @@ enum Haptics {
     static func light() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
+
+    /// A failure buzz — used when a dose action couldn't be saved, so the negative outcome is felt, not
+    /// silently mistaken for the usual success tap.
+    static func error() {
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
 }
