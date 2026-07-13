@@ -13,6 +13,7 @@ struct ManualEntryView: View {
     let editing: Medicine?
     @State private var draft: EditableDraft
     @State private var savedMedicine: Medicine?   // add-mode: the just-created med → push extras
+    @State private var isSaving = false           // in-flight guard so a double-tap can't create two meds
 
     init(editing: Medicine? = nil) {
         self.editing = editing
@@ -58,7 +59,7 @@ struct ManualEntryView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(draft.trimmedName.isEmpty)
+        .disabled(draft.blocksConfirm || isSaving)   // A1 (complete schedule) + B2 (no double-save)
         .accessibilityIdentifier("manualSave")
         .padding()
         .background(.bar)
@@ -68,6 +69,8 @@ struct ManualEntryView: View {
     /// then offers the optional post-save extras step; an edit (which already shows the extras inline)
     /// just closes the flow.
     private func save() {
+        guard !isSaving else { return }   // guard the fast-double-tap window before navigation commits
+        isSaving = true
         if let editing {
             MedicineWriter.saveEdit(editing, draft: draft, context: context, escalationEnabled: escalationEnabled)
             dismissFlow()
@@ -168,7 +171,13 @@ struct DraftScheduleEditor: View {
         } header: {
             Text("Repeat")
         } footer: {
-            Text("How often the dose recurs.")
+            if draft.scheduleIncomplete {
+                Text(draft.repeatMode == .weekdays
+                     ? "Select at least one weekday, or choose a different repeat."
+                     : "Select at least one day of the month, or choose a different repeat.")
+            } else {
+                Text("How often the dose recurs.")
+            }
         }
 
     }

@@ -53,22 +53,19 @@ struct DraftMedication: Codable, Identifiable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        name = try c.decodeIfPresent(String.self, forKey: .name)
-        dosage = try c.decodeIfPresent(String.self, forKey: .dosage)
-        form = try c.decodeIfPresent(String.self, forKey: .form)
-        frequency = try c.decodeIfPresent(String.self, forKey: .frequency)
-        schedule = try c.decodeIfPresent([String].self, forKey: .schedule) ?? []
-        quantity = try c.decodeIfPresent(String.self, forKey: .quantity)
-        scheduleInferred = try c.decodeIfPresent(Bool.self, forKey: .scheduleInferred) ?? false
-        uncertainFields = try c.decodeIfPresent([String].self, forKey: .uncertainFields) ?? []
-        // Truly lenient: decode the raw string and map an unknown/new value to `.low` rather than
-        // throwing `dataCorrupted` — a server-side enum tweak must never fail the whole parse (AI2).
-        if let raw = try c.decodeIfPresent(String.self, forKey: .confidence) {
-            confidence = Confidence(rawValue: raw) ?? .low
-        } else {
-            confidence = .low
-        }
-        requiresReview = try c.decodeIfPresent(Bool.self, forKey: .requiresReview) ?? true
+        // Fully lenient per field: a wrong TYPE (not just an absent/null key) defaults instead of failing
+        // the whole `ParseMedicationResponse` decode — a server-side schema tweak must never lose every
+        // medicine in the response. Unknown enum values also fall back rather than throw (AI2/B5).
+        name = try? c.decode(String.self, forKey: .name)
+        dosage = try? c.decode(String.self, forKey: .dosage)
+        form = try? c.decode(String.self, forKey: .form)
+        frequency = try? c.decode(String.self, forKey: .frequency)
+        schedule = (try? c.decode([String].self, forKey: .schedule)) ?? []
+        quantity = try? c.decode(String.self, forKey: .quantity)
+        scheduleInferred = (try? c.decode(Bool.self, forKey: .scheduleInferred)) ?? false
+        uncertainFields = (try? c.decode([String].self, forKey: .uncertainFields)) ?? []
+        confidence = (try? c.decode(String.self, forKey: .confidence)).flatMap { Confidence(rawValue: $0) } ?? .low
+        requiresReview = (try? c.decode(Bool.self, forKey: .requiresReview)) ?? true
     }
 }
 

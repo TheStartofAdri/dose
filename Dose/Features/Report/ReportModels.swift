@@ -15,7 +15,11 @@ enum ReportRange: Equatable {
         case .last30:
             return (calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now)) ?? now, now)
         case .custom(let from, let to):
-            return from <= to ? (from, to) : (to, from)
+            // Order the endpoints, and never let `to` run past `now` — a future end would inflate the
+            // "days tracked" header with empty not-yet-happened days (B6).
+            let lo = min(from, to)
+            let hi = min(max(from, to), now)
+            return (lo, hi)
         }
     }
 }

@@ -87,6 +87,29 @@ final class StreakTests: XCTestCase {
         XCTAssertEqual(streak(now: dayStart(2026, 6, 16, 12, 0), logs: [], medicines: []), 0)
     }
 
+    /// A3: a dose that is STILL SNOOZED (within its snooze window) must not break the streak — Today shows
+    /// it "snoozed until …" and adherence doesn't count it missed, so the streak must agree.
+    /// FAIL-BEFORE: isMiss looked only at scheduledFor + grace and ignored the snooze deferral, so a dose
+    /// snoozed past the 60-min grace zeroed the streak. PASS-AFTER: still-snoozed keeps the streak.
+    func testStillSnoozedDoseDoesNotBreakStreak() {
+        // 08:00 dose, snoozed at 08:05 for 60 min (until 09:05); now 09:02 → still snoozed.
+        let now = dayStart(2026, 6, 16, 9, 2)
+        let snooze = DoseLogSnapshot(medicineID: medID, scheduledFor: dayStart(2026, 6, 16, 8, 0),
+                                     action: .snoozed, actionedAt: dayStart(2026, 6, 16, 8, 5), snoozeMinutes: 60)
+        let logs = [snooze, taken(2026, 6, 15), taken(2026, 6, 14)]
+        XCTAssertEqual(streak(now: now, logs: logs), 3, "today (snoozed, in-progress) + 15 + 14")
+    }
+
+    /// Contrast/regression: once the snooze window has fully elapsed past grace with no action, it IS a
+    /// miss and breaks the streak — same as any forgotten dose.
+    func testElapsedSnoozePastGraceBreaksStreak() {
+        // Snoozed until 08:15, now 11:00 → well past 08:15 + 60-min grace → missed.
+        let now = dayStart(2026, 6, 16, 11, 0)
+        let snooze = DoseLogSnapshot(medicineID: medID, scheduledFor: dayStart(2026, 6, 16, 8, 0),
+                                     action: .snoozed, actionedAt: dayStart(2026, 6, 16, 8, 5), snoozeMinutes: 10)
+        XCTAssertEqual(streak(now: now, logs: [snooze, taken(2026, 6, 15)]), 0, "an elapsed, unacted snooze is a miss")
+    }
+
     // Item 1: a medicine added today injects no pre-creation misses, so it can't destroy an
     // existing streak from an older medicine.
     func testNewMedicineDoesNotBreakOldStreak() {

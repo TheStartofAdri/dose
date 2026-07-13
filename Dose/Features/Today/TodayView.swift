@@ -251,6 +251,10 @@ struct TodayView: View {
 
     /// Delete the medicine + its schedule. DoseLog history has no relationship to Medicine, so it survives.
     private func deletePermanently(_ medicine: Medicine) {
+        // Clear the stored reference BEFORE deleting: the per-row confirmation bindings read `deleting?.id`,
+        // and the delete's save re-fires the @Query — reading an invalidated @Model there is a SwiftData
+        // fatal error (the same hazard MedicineDetailView guards by dismissing first) (B1).
+        deleting = nil
         MedicineWriter.deletePermanently(medicine, context: context, escalationEnabled: escalationEnabled)
     }
 

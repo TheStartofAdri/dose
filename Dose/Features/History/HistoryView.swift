@@ -64,7 +64,10 @@ struct HistoryView: View {
     private func content(now: Date) -> some View {
         let grouped = groupedEvents(now: now)
 
-        if medicines.isEmpty {
+        // "No history yet" only when there's genuinely nothing to show. DoseLog is intentionally never
+        // cascade-deleted (the delete dialog promises "history is kept"), so retained logs must still
+        // appear after the last Medicine is deleted — gate on logs too, not medicines alone (A4).
+        if medicines.isEmpty && logs.isEmpty {
             VStack {
                 Spacer()
                 DoseEmptyState(icon: "clock.arrow.circlepath",

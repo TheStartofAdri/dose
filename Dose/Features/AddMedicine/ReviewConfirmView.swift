@@ -13,6 +13,7 @@ struct ReviewConfirmView: View {
     var onRetake: (() -> Void)? = nil
 
     @State private var extrasMedicine: Medicine?
+    @State private var isConfirming = false   // in-flight guard so a double-tap can't confirm twice
 
     private var blocked: Bool { drafts.contains { $0.blocksConfirm } }
 
@@ -50,6 +51,8 @@ struct ReviewConfirmView: View {
     }
 
     private func confirm() {
+        guard !isConfirming else { return }
+        isConfirming = true
         let created = MedicineWriter.confirm(drafts, context: context, escalationEnabled: escalationEnabled)
         // One new medicine → route into the post-save extras step (icon / duration / instructions).
         // Zero or several → just finish (multi-med extras would be ambiguous; editable later via Edit).
@@ -91,7 +94,7 @@ struct ReviewConfirmView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(blocked)
+            .disabled(blocked || isConfirming)
         }
         .padding()
         .background(.bar)

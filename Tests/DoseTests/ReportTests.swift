@@ -24,6 +24,25 @@ final class ReportTests: XCTestCase {
         DoseLogSnapshot(medicineID: id, scheduledFor: at(y, mo, d, 8), action: .skipped, actionedAt: at(y, mo, d, 8))
     }
 
+    // MARK: - Custom range clamps a future end (B6)
+
+    /// A custom range whose `to` is in the future must clamp to `now`, so empty not-yet-happened days
+    /// don't inflate the report's "days tracked". FAIL-BEFORE: `to` was returned as-is.
+    func testCustomRangeClampsFutureEndAtNow() {
+        let now = at(2026, 6, 16, 12)
+        let (from, to) = ReportRange.custom(from: at(2026, 6, 10), to: at(2026, 6, 20)).resolved(now: now, calendar: cal)
+        XCTAssertEqual(from, at(2026, 6, 10))
+        XCTAssertEqual(to, now, "a future end clamps to now")
+    }
+
+    func testCustomRangeStillOrdersEndpointsAndKeepsPastRanges() {
+        let now = at(2026, 6, 16, 12)
+        // Reversed, fully in the past → ordered, unchanged by the clamp.
+        let (from, to) = ReportRange.custom(from: at(2026, 6, 12), to: at(2026, 6, 8)).resolved(now: now, calendar: cal)
+        XCTAssertEqual(from, at(2026, 6, 8))
+        XCTAssertEqual(to, at(2026, 6, 12))
+    }
+
     // MARK: - Seam
 
     @MainActor

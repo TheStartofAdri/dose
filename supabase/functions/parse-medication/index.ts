@@ -142,7 +142,11 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!resp.ok) {
-    return json({ error: "upstream_error", status: resp.status, detail: await resp.text() }, 502);
+    // Guard the body read too: a throwing resp.text() would otherwise become an uncaught bare 500,
+    // re-breaking the "500 means missing key only" contract. Any upstream fault stays a 502 (A7).
+    let detail = "";
+    try { detail = await resp.text(); } catch (e) { detail = `unreadable upstream body: ${String(e)}`; }
+    return json({ error: "upstream_error", status: resp.status, detail }, 502);
   }
 
   // Guard the JSON read: a 200-OK-but-truncated/non-JSON upstream body would otherwise throw here and

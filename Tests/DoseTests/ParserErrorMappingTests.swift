@@ -107,4 +107,18 @@ final class ParserErrorMappingTests: XCTestCase {
         let resp = try JSONDecoder().decode(ParseMedicationResponse.self, from: json)
         XCTAssertEqual(resp.medicines.first?.confidence, .low, "an unknown confidence falls back to .low")
     }
+
+    /// B5: a WRONG-TYPE field (confidence as a number, scheduleInferred as a string) must default rather
+    /// than throw `typeMismatch` and lose every medicine in the response. `decodeIfPresent` alone threw.
+    func testWrongTypeFieldsDefaultInsteadOfFailingWholeParse() throws {
+        let json = Data("""
+        {"medicines":[{"name":"Aspirin","dosage":null,"form":null,"frequency":null,"schedule":[],
+        "quantity":null,"scheduleInferred":"yes","uncertainFields":[],"confidence":5,"requiresReview":true}]}
+        """.utf8)
+        let resp = try JSONDecoder().decode(ParseMedicationResponse.self, from: json)
+        XCTAssertEqual(resp.medicines.count, 1, "a wrong-type field must not drop the whole response")
+        XCTAssertEqual(resp.medicines.first?.name, "Aspirin")
+        XCTAssertEqual(resp.medicines.first?.confidence, .low)
+        XCTAssertEqual(resp.medicines.first?.scheduleInferred, false)
+    }
 }

@@ -48,7 +48,10 @@ enum BackgroundRefresh {
             // Wait for the async notification adds to flush before telling iOS we're done — otherwise the
             // app can be suspended mid-enqueue and drop the refilled reminders (N2).
             await NotificationScheduler.shared.pendingRequestsSettled()
-            task.setTaskCompleted(success: true)
+            // SINGLE completion point — always runs and ends the task exactly once (no double-completion
+            // race). `success` reflects whether the deadline cut us short: the expiration handler only
+            // cancels, so on expiry this reports success:false, satisfying the BGTask contract (A5).
+            task.setTaskCompleted(success: !Task.isCancelled)
         }
         task.expirationHandler = { work.cancel() }
     }

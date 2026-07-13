@@ -60,6 +60,13 @@ final class SubscriptionStore: ObservableObject {
 
     /// Pure, unit-testable decision: premium iff any non-revoked entitlement is unexpired (a trial is just
     /// an active entitlement whose `expiration` is the trial end).
+    ///
+    /// KNOWN CONSIDERATION (B3, verify against real StoreKit before changing): `refresh()` builds these
+    /// snapshots from `Transaction.currentEntitlements`, which StoreKit already limits to *currently
+    /// valid* entitlements — including ones in a **billing grace period**, whose `expirationDate` is in
+    /// the past yet the customer is still entitled. The extra `expiration > now` check here can therefore
+    /// UNDER-grant during grace. The safe fix (trust `currentEntitlements` membership, or consult the
+    /// renewal state) needs a sandbox/device grace-period test first — do not change this blind.
     static func isEntitled(_ entitlements: [EntitlementSnapshot], now: Date = .now) -> Bool {
         entitlements.contains { !$0.isRevoked && ($0.expiration == nil || $0.expiration! > now) }
     }

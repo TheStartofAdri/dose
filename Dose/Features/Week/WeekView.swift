@@ -52,17 +52,20 @@ struct WeekView: View {
         let taken = weekDays.reduce(0) { $0 + $1.taken }
         let skipped = weekDays.reduce(0) { $0 + $1.skipped }
         let missed = AdherenceCalculator.missedCount(weekDays)
-        // Distinct in-window slots whose LATEST log is still a snooze, among the active confirmed meds —
-        // mirrors how taken/skipped/missed are resolved. (Was: raw `.snoozed` log count, which double-
-        // counted a re-snoozed dose, still counted one later taken/skipped, and included archived/deleted meds.)
+        // Distinct in-window slots that are GENUINELY still snoozed among the active confirmed meds, via
+        // the single source of truth (`ExecutionEngine.status`): a snooze whose window has elapsed resolves
+        // to .due/.missed everywhere else, so it must not also be tallied here (that double-counted it with
+        // Missed). Terminal-sticky also excludes a slot later taken/skipped. (Was: raw latest==.snoozed.)
         let activeIDs = Set(meds.map { $0.id })
         let snoozed = Set(
             logSnaps
                 .filter { log in
-                    log.action == .snoozed && activeIDs.contains(log.medicineID)
-                        && log.scheduledFor >= weekStart && log.scheduledFor <= weekEnd
-                        && ExecutionEngine.latestLog(medicineID: log.medicineID,
-                                                     scheduledFor: log.scheduledFor, in: logSnaps)?.action == .snoozed
+                    guard log.action == .snoozed, activeIDs.contains(log.medicineID),
+                          log.scheduledFor >= weekStart, log.scheduledFor <= weekEnd else { return false }
+                    let latest = ExecutionEngine.latestLog(medicineID: log.medicineID,
+                                                           scheduledFor: log.scheduledFor, in: logSnaps)
+                    return ExecutionEngine.status(scheduledFor: log.scheduledFor, latest: latest,
+                                                  now: now, grace: ExecutionEngine.defaultGrace).0 == .snoozed
                 }
                 .map { "\($0.medicineID)-\(Int($0.scheduledFor.timeIntervalSince1970))" }
         ).count

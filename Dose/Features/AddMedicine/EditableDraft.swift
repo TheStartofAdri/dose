@@ -144,8 +144,12 @@ final class EditableDraft: Identifiable {
         // empty name is enforced separately by `trimmedName`.
         var must = Set<String>()
         if source != .manual {
-            if uncertainFields.contains("name") { must.insert("name") }
-            if uncertainFields.contains("dosage") { must.insert("dosage") }
+            // Low overall confidence ALWAYS makes name + dosage must-review, even if the model left
+            // `uncertainFields` empty — the prompt only guarantees it sets confidence low when the name or
+            // dosage is uncertain, so a low draft must never confirm with zero acknowledgement (A6).
+            let low = confidence == .low
+            if low || uncertainFields.contains("name") { must.insert("name") }
+            if low || uncertainFields.contains("dosage") { must.insert("dosage") }
         }
         // An inferred OR flagged SCHEDULE is also must-review: a wrong cadence is a dosing-safety error
         // and the easiest wrong value to confirm. `scheduleInferred` flags it regardless of overall
@@ -229,7 +233,18 @@ final class EditableDraft: Identifiable {
     func wasAcknowledged(_ field: String) -> Bool { acknowledged.contains(field) }
 
     /// Confirm is blocked while the name is empty or any must-edit field is still untouched.
-    var blocksConfirm: Bool { trimmedName.isEmpty || !mustEdit.isEmpty }
+    var blocksConfirm: Bool { trimmedName.isEmpty || scheduleIncomplete || !mustEdit.isEmpty }
+
+    /// A chosen repeat mode whose selection is empty — "specific weekdays" or "days of month" with nothing
+    /// picked. The engine reads an empty `weekdays`/`daysOfMonth` as EVERY DAY, so confirming this would
+    /// silently create a daily schedule; block it until a day is chosen or the mode changes (A1).
+    var scheduleIncomplete: Bool {
+        switch repeatMode {
+        case .weekdays: return weekdays.isEmpty
+        case .daysOfMonth: return daysOfMonth.isEmpty
+        case .everyday, .everyNDays: return false
+        }
+    }
 
     func isUncertain(_ field: String) -> Bool { uncertainFields.contains(field) }
     func mustReview(_ field: String) -> Bool { mustEdit.contains(field) }
