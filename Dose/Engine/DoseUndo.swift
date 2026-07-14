@@ -25,7 +25,9 @@ enum DoseUndo {
         // @Query hasn't observed the delete yet within this synchronous call.
         let meds = (try? context.fetch(FetchDescriptor<Medicine>())) ?? []
         let logs = (try? context.fetch(FetchDescriptor<DoseLog>())) ?? []
-        scheduler.reschedule(medicines: meds, logs: logs, escalationEnabled: escalationEnabled, now: now)
+        let appts = (try? context.fetch(FetchDescriptor<Appointment>())) ?? []
+        scheduler.reschedule(medicines: meds, logs: logs, appointments: appts,
+                             escalationEnabled: escalationEnabled, now: now)
         return toDelete.count
     }
 }

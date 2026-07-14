@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Query private var logs: [DoseLog]
     @Query private var notes: [Note]
     @Query private var trackedMetrics: [TrackedMetric]
+    @Query private var appointments: [Appointment]
 
     @AppStorage(SettingsKeys.soundEnabled) private var soundEnabled = true
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
@@ -227,8 +228,9 @@ struct SettingsView: View {
         try? context.delete(model: Medicine.self)    // cascades any remaining DoseTime
         try? context.delete(model: MetricEntry.self)
         try? context.delete(model: TrackedMetric.self)
+        try? context.delete(model: Appointment.self)
         try? context.save()
-        NotificationScheduler.shared.reschedule(medicines: [], logs: [], escalationEnabled: escalationEnabled)
+        NotificationScheduler.shared.reschedule(medicines: [], logs: [], appointments: [], escalationEnabled: escalationEnabled)
         Haptics.light()
     }
 
@@ -259,7 +261,8 @@ struct SettingsView: View {
     }
 
     private func reschedule() {
-        NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, escalationEnabled: escalationEnabled)
+        NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, appointments: appointments,
+                                                escalationEnabled: escalationEnabled)
     }
 
     /// Request Health authorization for the HK-backed tracked metrics, then import recent vitals.

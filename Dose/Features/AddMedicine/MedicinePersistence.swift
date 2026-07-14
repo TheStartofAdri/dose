@@ -53,6 +53,8 @@ enum MedicineWriter {
         try? context.save()
         let all = (try? context.fetch(FetchDescriptor<Medicine>())) ?? []
         let allLogs = (try? context.fetch(FetchDescriptor<DoseLog>())) ?? []
-        NotificationScheduler.shared.reschedule(medicines: all, logs: allLogs, escalationEnabled: escalationEnabled)
+        let appts = (try? context.fetch(FetchDescriptor<Appointment>())) ?? []
+        NotificationScheduler.shared.reschedule(medicines: all, logs: allLogs, appointments: appts,
+                                                escalationEnabled: escalationEnabled)
     }
 }

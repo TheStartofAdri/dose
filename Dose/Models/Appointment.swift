@@ -74,6 +74,23 @@ extension Appointment {
     }
 }
 
+/// A pure, Sendable value copy of an `Appointment` — so the notification planner (and any off-main work)
+/// can reason about reminders without touching the SwiftData model. Mirrors `MedicineSnapshot`.
+struct AppointmentSnapshot: Sendable, Hashable, Identifiable {
+    let id: UUID
+    let title: String
+    let subtitle: String?
+    let startsAt: Date
+    let reminderLeadMinutes: Int?
+}
+
+extension Appointment {
+    func snapshot() -> AppointmentSnapshot {
+        AppointmentSnapshot(id: id, title: title, subtitle: subtitle,
+                            startsAt: startsAt, reminderLeadMinutes: reminderLeadMinutes)
+    }
+}
+
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }

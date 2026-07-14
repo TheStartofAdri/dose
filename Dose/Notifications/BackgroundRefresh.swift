@@ -44,7 +44,9 @@ enum BackgroundRefresh {
             let escalationEnabled = UserDefaults.standard.bool(forKey: SettingsKeys.escalationEnabled)
             let meds = (try? container?.mainContext.fetch(FetchDescriptor<Medicine>())) ?? []
             let logs = (try? container?.mainContext.fetch(FetchDescriptor<DoseLog>())) ?? []
-            NotificationScheduler.shared.reschedule(medicines: meds, logs: logs, escalationEnabled: escalationEnabled)
+            let appts = (try? container?.mainContext.fetch(FetchDescriptor<Appointment>())) ?? []
+            NotificationScheduler.shared.reschedule(medicines: meds, logs: logs, appointments: appts,
+                                                    escalationEnabled: escalationEnabled)
             // Wait for the async notification adds to flush before telling iOS we're done — otherwise the
             // app can be suspended mid-enqueue and drop the refilled reminders (N2).
             await NotificationScheduler.shared.pendingRequestsSettled()

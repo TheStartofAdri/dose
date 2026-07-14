@@ -55,5 +55,18 @@ enum AppointmentWriter {
             logger.error("Failed to save appointment change: \(error.localizedDescription, privacy: .public)")
             throw error
         }
+        reschedule(context)
+    }
+
+    /// Re-arm notifications after an appointment write so its reminder is scheduled promptly (not only on
+    /// the next foreground). Mirrors `MedicineWriter.persist`: fetch the full store state and funnel
+    /// through the single `reschedule` path, which re-plans doses AND appointment reminders together.
+    private static func reschedule(_ context: ModelContext) {
+        let escalationEnabled = UserDefaults.standard.bool(forKey: SettingsKeys.escalationEnabled)
+        let meds = (try? context.fetch(FetchDescriptor<Medicine>())) ?? []
+        let logs = (try? context.fetch(FetchDescriptor<DoseLog>())) ?? []
+        let appts = (try? context.fetch(FetchDescriptor<Appointment>())) ?? []
+        NotificationScheduler.shared.reschedule(medicines: meds, logs: logs, appointments: appts,
+                                                escalationEnabled: escalationEnabled)
     }
 }
