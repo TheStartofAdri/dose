@@ -215,7 +215,7 @@ struct SettingsView: View {
     /// leaves the device unless the user chooses a destination.
     private func exportAllData() {
         guard let url = try? DataExport.writeTempFile(medicines: medicines, logs: logs, notes: notes,
-                                                      metrics: trackedMetrics) else { return }
+                                                      metrics: trackedMetrics, appointments: appointments) else { return }
         shareFile = ShareableFile(url: url)
     }
 

@@ -23,9 +23,14 @@ final class DataExportTests: XCTestCase {
         let metric = TrackedMetric(name: "Pain", kind: .symptom, valueKind: .severity, createdAt: t)
         ctx.insert(metric)
         ctx.insert(MetricEntry(severity: 6, loggedAt: t, metric: metric))
+        let appt = Appointment(title: "Cardiology follow-up", providerName: "Dr. Smith", location: "City Clinic",
+                               startsAt: t, durationMinutes: 30, notes: "bring meds list",
+                               reminderLeadMinutes: 1440, createdAt: t)
+        ctx.insert(appt)
         try ctx.save()
 
         let payload = DataExport.payload(medicines: [med], logs: [log], notes: [note], metrics: [metric],
+                                         appointments: [appt],
                                          now: Date(timeIntervalSince1970: 1_800_000_000))
         XCTAssertEqual(payload.medicines.count, 1)
         XCTAssertEqual(payload.metrics.count, 1)
@@ -35,6 +40,10 @@ final class DataExportTests: XCTestCase {
         XCTAssertEqual(payload.medicines.first?.schedule.first?.hour, 8)
         XCTAssertEqual(payload.doseLogs.first?.action, "taken")
         XCTAssertEqual(payload.notes.first?.text, "felt fine")
+        XCTAssertEqual(payload.appointments.count, 1)
+        XCTAssertEqual(payload.appointments.first?.title, "Cardiology follow-up")
+        XCTAssertEqual(payload.appointments.first?.providerName, "Dr. Smith")
+        XCTAssertEqual(payload.appointments.first?.reminderLeadMinutes, 1440)
 
         let data = try DataExport.encode(payload)
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
