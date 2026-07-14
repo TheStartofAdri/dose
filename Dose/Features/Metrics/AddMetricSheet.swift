@@ -24,7 +24,9 @@ struct AddMetricSheet: View {
         .init(name: "Energy", kind: .symptom, valueKind: .severity, unit: nil, icon: "sun.max.fill", color: "#FFCC00"),
         .init(name: "Sleep", kind: .vital, valueKind: .number, unit: "hrs", icon: "bed.double.fill", color: "#5856D6"),
         .init(name: "Weight", kind: .vital, valueKind: .number, unit: "kg", icon: "scalemass.fill", color: "#34C759"),
+        .init(name: "Heart rate", kind: .vital, valueKind: .number, unit: "bpm", icon: "heart.fill", color: "#FF3B30"),
         .init(name: "Glucose", kind: .vital, valueKind: .number, unit: "mg/dL", icon: "drop.fill", color: "#FF2D55"),
+        .init(name: "Oxygen", kind: .vital, valueKind: .number, unit: "%", icon: "lungs.fill", color: "#00C7BE"),
     ]
 
     var body: some View {

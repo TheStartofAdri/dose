@@ -92,6 +92,8 @@ struct LogMetricSheet: View {
                 try MetricWriter.log(metric, severity: Int(severity), note: note, into: context)
             } else if let v = parsedValue {
                 try MetricWriter.log(metric, value: v, note: note, into: context)
+                // Best-effort write-back to Health (no-op if not a HK-backed vital / not authorised).
+                Task { await HealthKitService.shared.writeSample(for: metric, value: v) }
             } else { return }
             Haptics.success()
             dismiss()

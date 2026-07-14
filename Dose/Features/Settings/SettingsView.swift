@@ -21,6 +21,8 @@ struct SettingsView: View {
     @State private var manageSubscriptions = false
     @State private var shareFile: ShareableFile?
     @State private var confirmDeleteAll = false
+    @State private var healthStatus: String?
+    @State private var healthConnecting = false
 
     // Diagnostics: the startup reachability probe flips this when the AI backend host can't be reached.
     private let aiBackendHealth = AIBackendHealth.shared
@@ -101,6 +103,33 @@ struct SettingsView: View {
                             LabeledContent("Archived medicines", value: "\(Medicine.archived(medicines).count)")
                         }
                     }
+                }
+
+                Section {
+                    if HealthKitService.isAvailable {
+                        Button {
+                            Task { await connectHealth() }
+                        } label: {
+                            HStack {
+                                Label("Connect Apple Health", systemImage: "heart.fill")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if healthConnecting { ProgressView() }
+                            }
+                        }
+                        .disabled(healthConnecting)
+                        .accessibilityIdentifier("connectHealthRow")
+                        if let healthStatus {
+                            Text(healthStatus).font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("Apple Health isn't available on this device.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Apple Health")
+                } footer: {
+                    Text("Import vitals (weight, heart rate, glucose, oxygen) so you don't type them in, and save the vitals you log back to Health. Add a matching metric on the Track screen first.")
                 }
 
                 Section("Appearance") {
@@ -231,5 +260,22 @@ struct SettingsView: View {
 
     private func reschedule() {
         NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, escalationEnabled: escalationEnabled)
+    }
+
+    /// Request Health authorization for the HK-backed tracked metrics, then import recent vitals.
+    private func connectHealth() async {
+        healthConnecting = true
+        defer { healthConnecting = false }
+        let active = TrackedMetric.active(trackedMetrics)
+        guard HealthKitService.shared.hasSyncableMetrics(active) else {
+            healthStatus = "Add a vital like Weight, Heart rate, Glucose, or Oxygen on the Track screen first."
+            return
+        }
+        guard await HealthKitService.shared.requestAuthorization(for: active) else {
+            healthStatus = "Couldn't connect to Health."
+            return
+        }
+        let n = await HealthKitService.shared.importRecent(for: active, into: context)
+        healthStatus = n > 0 ? "Imported \(n) reading\(n == 1 ? "" : "s") from Health." : "Connected. No new readings to import."
     }
 }
