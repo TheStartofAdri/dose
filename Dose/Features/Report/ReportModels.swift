@@ -34,6 +34,17 @@ struct ReportData {
     let summary: Summary
     /// Tracked symptoms/vitals over the range — a clinically-legible companion to the adherence lines.
     let metrics: [MetricSummary]
+    /// Upcoming appointments (future visits, soonest first) — the patient's care schedule, for context.
+    /// Independent of the adherence date range, which is a PAST window.
+    let appointments: [AppointmentLine]
+
+    /// One upcoming appointment, for the report's care-schedule section.
+    struct AppointmentLine: Identifiable {
+        let id: UUID
+        let title: String
+        let subtitle: String?   // provider · location
+        let when: Date
+    }
 
     /// One tracked metric's stats over the report range (count/latest/average/range), for the PDF.
     struct MetricSummary: Identifiable {

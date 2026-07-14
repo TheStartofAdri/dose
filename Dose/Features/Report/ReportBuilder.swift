@@ -13,11 +13,16 @@ struct MetricReportInput {
 }
 
 enum ReportBuilder {
+    /// The most upcoming appointments any single report lists — enough for a care schedule, bounded so a
+    /// user with many future visits doesn't produce an unwieldy doctor handout.
+    static let maxAppointments = 12
+
     static func build(
         medicines: [MedicineSnapshot],
         logs: [DoseLogSnapshot],
         range: ReportRange,
         metricInputs: [MetricReportInput] = [],
+        appointments: [AppointmentSnapshot] = [],
         now: Date = .now,
         generatedAt: Date = .now,
         calendar: Calendar = .current
@@ -60,7 +65,15 @@ enum ReportBuilder {
                 minimum: v.min(), maximum: v.max())
         }
 
+        // Upcoming appointments only (future visits) — independent of the past adherence range —
+        // soonest first, bounded so the handout stays reasonable.
+        let upcomingAppointments = appointments
+            .filter { $0.startsAt >= now }
+            .sorted { $0.startsAt < $1.startsAt }
+            .prefix(maxAppointments)
+            .map { ReportData.AppointmentLine(id: $0.id, title: $0.title, subtitle: $0.subtitle, when: $0.startsAt) }
+
         return ReportData(rangeStart: from, rangeEnd: to, generatedAt: generatedAt,
-                          lines: lines, summary: summary, metrics: metrics)
+                          lines: lines, summary: summary, metrics: metrics, appointments: upcomingAppointments)
     }
 }
