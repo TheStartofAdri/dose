@@ -8,6 +8,7 @@ struct ReportOptionsView: View {
     @Query(sort: \Medicine.name) private var medicines: [Medicine]   // filtered via `listed` (active + confirmed)
     @Query(sort: \DoseLog.scheduledFor) private var logs: [DoseLog]
     @Query(sort: \TrackedMetric.sortOrder) private var trackedMetrics: [TrackedMetric]
+    @Query(sort: \Appointment.startsAt) private var appointments: [Appointment]
 
     /// Medicine IDs to start checked (e.g. a single med from its detail). `nil` = select all.
     var preselected: Set<UUID>?
@@ -113,7 +114,8 @@ struct ReportOptionsView: View {
             return vals.isEmpty ? nil : MetricReportInput(name: metric.name, unit: metric.unit, values: vals)
         }
         let data = ReportBuilder.build(medicines: meds, logs: logs.map { $0.snapshot() },
-                                       range: range, metricInputs: metricInputs)
+                                       range: range, metricInputs: metricInputs,
+                                       appointments: appointments.map { $0.snapshot() })
         let pdf = ReportPDFRenderer.render(data)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Adherence Report.pdf")
         try? pdf.write(to: url)

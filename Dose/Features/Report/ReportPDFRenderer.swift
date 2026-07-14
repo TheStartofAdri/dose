@@ -140,6 +140,20 @@ enum ReportPDFRenderer {
                 }
             }
 
+            // Upcoming appointments — the patient's care schedule (future visits only).
+            if !data.appointments.isEmpty {
+                y += 8
+                ensure(50)
+                draw("Upcoming appointments", font: .boldSystemFont(ofSize: 15), spacingAfter: 4)
+                for appt in data.appointments {
+                    ensure(30)
+                    draw(appt.title, font: .boldSystemFont(ofSize: 13), spacingAfter: 1)
+                    let subtitle = appt.subtitle.map { "\($0)  ·  " } ?? ""
+                    draw("\(subtitle)\(dateTime.string(from: appt.when))",
+                         font: .systemFont(ofSize: 12), color: .secondaryLabel, spacingAfter: 8)
+                }
+            }
+
             drawLegend()
         }
     }

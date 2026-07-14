@@ -43,6 +43,33 @@ final class ReportTests: XCTestCase {
         XCTAssertEqual(to, at(2026, 6, 12))
     }
 
+    // MARK: - Upcoming appointments in the report
+
+    private func appt(_ y: Int, _ mo: Int, _ d: Int, title: String, provider: String? = nil) -> AppointmentSnapshot {
+        AppointmentSnapshot(id: UUID(), title: title,
+                            subtitle: provider, startsAt: at(y, mo, d, 10), reminderLeadMinutes: 1440)
+    }
+
+    /// Only FUTURE appointments appear (independent of the past adherence range), soonest first.
+    func testReportListsUpcomingAppointmentsSoonestFirst() {
+        let now = at(2026, 6, 16, 12)
+        let past = appt(2026, 6, 10, title: "Old visit")               // before now → excluded
+        let soon = appt(2026, 6, 20, title: "Cardiology", provider: "Dr. Smith")
+        let later = appt(2026, 7, 5, title: "Dermatology")
+        let data = ReportBuilder.build(medicines: [], logs: [], range: .last7,
+                                       appointments: [later, past, soon], now: now, generatedAt: now, calendar: cal)
+        XCTAssertEqual(data.appointments.map(\.title), ["Cardiology", "Dermatology"], "future only, soonest first")
+        XCTAssertEqual(data.appointments.first?.subtitle, "Dr. Smith")
+    }
+
+    func testReportCapsUpcomingAppointments() {
+        let now = at(2026, 6, 16, 12)
+        let many = (1...20).map { appt(2026, 7, $0, title: "Visit \($0)") }   // all future
+        let data = ReportBuilder.build(medicines: [], logs: [], range: .last7,
+                                       appointments: many, now: now, generatedAt: now, calendar: cal)
+        XCTAssertEqual(data.appointments.count, ReportBuilder.maxAppointments, "bounded for a reasonable handout")
+    }
+
     // MARK: - Metrics in the report (Phase 4)
 
     func testMetricSummariesComputedForReport() {
