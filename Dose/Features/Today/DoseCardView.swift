@@ -169,13 +169,8 @@ struct DoseCardView: View {
     /// its bottom edge; pin a point just below its centre to the baseline so it optically centres on the
     /// name's/time's first line.
     private var iconBadge: some View {
-        Image(systemName: MedAppearance.icon(iconName))
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 26, height: 26)
-            .background(MedAppearance.color(colorHex), in: Circle())
+        MedicineIconBadge(iconName: iconName, colorHex: colorHex, size: 26)
             .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-            .accessibilityHidden(true)
     }
 
     /// The scheduled time — a small top-right timestamp (no longer the big left-hand number). Red when the
@@ -194,7 +189,7 @@ struct DoseCardView: View {
 
     /// Red when overdue/missed (the urgent states), neutral gray otherwise.
     private var timeColor: Color {
-        (dose.status == .due || dose.status == .missed) ? .red : .secondary
+        (dose.status == .due || dose.status == .missed) ? DoseColors.missed : DoseColors.neutral
     }
 
     /// Top-right stack: the small time on top, the Take/⋯ controls below it. The time aligns to the name's
@@ -229,7 +224,7 @@ struct DoseCardView: View {
                 .frame(minWidth: 56)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
-                .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
                 .foregroundStyle(accent)
             }
             .buttonStyle(.plain)
@@ -242,7 +237,7 @@ struct DoseCardView: View {
                     .frame(minWidth: 56)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 12)
-                    .background(.green, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(DoseColors.taken, in: RoundedRectangle(cornerRadius: DoseRadius.control, style: .continuous))
                     .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
@@ -258,7 +253,7 @@ struct DoseCardView: View {
             Image(systemName: "ellipsis.circle")
                 .font(.title3)
                 .foregroundStyle(.secondary)
-                .frame(width: 30, height: 44)
+                .frame(width: 44, height: 44)     // 44×44 tap target, matching the same control elsewhere
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

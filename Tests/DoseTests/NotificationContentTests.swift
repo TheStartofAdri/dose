@@ -32,12 +32,13 @@ final class NotificationContentTests: XCTestCase {
         XCTAssertEqual(content.categoryIdentifier, NotificationScheduler.categoryID)
     }
 
-    // Feature A: a lead-time heads-up is time-sensitive and uses the countdown title.
+    // Feature A: a lead-time heads-up is time-sensitive and uses the countdown title. It carries the
+    // snooze-free lead-time category (N1) — a heads-up snooze can't survive a reschedule.
     func testLeadTimeContentIsTimeSensitiveWithCountdownTitle() {
         let content = NotificationScheduler.makeContent(
             name: "Aspirin", dosage: "100 mg", leadMinutes: 15, userInfo: ["kind": "leadtime"])
         XCTAssertEqual(content.interruptionLevel, .timeSensitive)
         XCTAssertEqual(content.title, "Aspirin coming up in 15 min")
-        XCTAssertEqual(content.categoryIdentifier, NotificationScheduler.categoryID)
+        XCTAssertEqual(content.categoryIdentifier, NotificationScheduler.leadTimeCategoryID)
     }
 }

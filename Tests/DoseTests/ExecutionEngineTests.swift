@@ -101,6 +101,31 @@ final class ExecutionEngineTests: XCTestCase {
         XCTAssertEqual(single(date(2026, 6, 16, 9, 0), logs: logs).status, .taken)
     }
 
+    /// S4: a `.taken` is terminal — a LATER `.snoozed` for the same slot must not reopen it and erase
+    /// the take. FAIL-BEFORE: strict latest-wins let the later snooze win, so the slot read `.due`/
+    /// `.missed` again. PASS-AFTER: a terminal action settles the slot regardless of a later snooze.
+    func testLaterSnoozeDoesNotEraseAnEarlierTake() {
+        let scheduled = date(2026, 6, 16, 8, 0)
+        let logs = [
+            DoseLogSnapshot(medicineID: medID, scheduledFor: scheduled, action: .taken, actionedAt: date(2026, 6, 16, 8, 12)),
+            DoseLogSnapshot(medicineID: medID, scheduledFor: scheduled, action: .snoozed, actionedAt: date(2026, 6, 16, 8, 20)),
+        ]
+        XCTAssertEqual(single(date(2026, 6, 16, 9, 0), logs: logs).status, .taken,
+                       "a take stays taken even if a snooze was logged for the same slot afterwards")
+    }
+
+    /// S3: two logs sharing an identical `actionedAt` must resolve deterministically (not by array
+    /// order), so Today and History — which receive logs in different orderings — always agree.
+    func testEqualActionedAtResolvesDeterministically() {
+        let scheduled = date(2026, 6, 16, 8, 0)
+        let at = date(2026, 6, 16, 8, 5)
+        let taken = DoseLogSnapshot(medicineID: medID, scheduledFor: scheduled, action: .taken, actionedAt: at)
+        let skipped = DoseLogSnapshot(medicineID: medID, scheduledFor: scheduled, action: .skipped, actionedAt: at)
+        let a = ExecutionEngine.latestLog(medicineID: medID, scheduledFor: scheduled, in: [taken, skipped])
+        let b = ExecutionEngine.latestLog(medicineID: medID, scheduledFor: scheduled, in: [skipped, taken])
+        XCTAssertEqual(a?.action, b?.action, "resolution is independent of log array order")
+    }
+
     func testWeekdayRuleProducesNoSlotOnOffDays() {
         // Rule only on the weekday *after* our test day → no slot today.
         let day = date(2026, 6, 16, 12, 0)

@@ -60,6 +60,13 @@ final class SubscriptionStore: ObservableObject {
 
     /// Pure, unit-testable decision: premium iff any non-revoked entitlement is unexpired (a trial is just
     /// an active entitlement whose `expiration` is the trial end).
+    ///
+    /// KNOWN CONSIDERATION (B3, verify against real StoreKit before changing): `refresh()` builds these
+    /// snapshots from `Transaction.currentEntitlements`, which StoreKit already limits to *currently
+    /// valid* entitlements — including ones in a **billing grace period**, whose `expirationDate` is in
+    /// the past yet the customer is still entitled. The extra `expiration > now` check here can therefore
+    /// UNDER-grant during grace. The safe fix (trust `currentEntitlements` membership, or consult the
+    /// renewal state) needs a sandbox/device grace-period test first — do not change this blind.
     static func isEntitled(_ entitlements: [EntitlementSnapshot], now: Date = .now) -> Bool {
         entitlements.contains { !$0.isRevoked && ($0.expiration == nil || $0.expiration! > now) }
     }
@@ -96,6 +103,11 @@ final class SubscriptionStore: ObservableObject {
 
     /// Recompute `isPremium` from current entitlements and `hasEverSubscribed` from all transactions.
     func refresh() async {
+        #if DEBUG
+        // A test-forced entitlement stays authoritative — otherwise a foreground `refresh()` (e.g. the
+        // scenePhase re-check) would recompute from the empty StoreKit test session and wipe it.
+        if forcedForTesting { return }
+        #endif
         var current: [EntitlementSnapshot] = []
         for await result in Transaction.currentEntitlements {
             guard case .verified(let txn) = result, Self.productIDs.contains(txn.productID) else { continue }
@@ -119,9 +131,18 @@ final class SubscriptionStore: ObservableObject {
         do {
             switch try await product.purchase() {
             case .success(let verification):
-                if case .verified(let txn) = verification { await txn.finish() }
-                await refresh()
-            case .userCancelled, .pending:
+                switch verification {
+                case .verified(let txn):
+                    await txn.finish()
+                    await refresh()
+                case .unverified:
+                    // Purchase succeeded but the receipt couldn't be verified — don't grant; tell the user.
+                    lastError = "That purchase couldn't be verified. Please try again."
+                }
+            case .pending:
+                // Deferred (e.g. Ask to Buy / SCA) — surface it so the paywall doesn't look like a no-op.
+                lastError = "Your purchase is pending approval. You'll get access once it's approved."
+            case .userCancelled:
                 break
             @unknown default:
                 break

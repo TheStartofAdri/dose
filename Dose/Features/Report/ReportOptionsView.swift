@@ -31,9 +31,7 @@ struct ReportOptionsView: View {
                     ForEach(listed) { med in
                         Button { toggle(med.id) } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: MedAppearance.icon(med.iconName))
-                                    .foregroundStyle(MedAppearance.color(med.colorHex))
-                                    .frame(width: 22)
+                                MedicineIconBadge(iconName: med.iconName, colorHex: med.colorHex, size: 28)
                                 Text(med.name).foregroundStyle(.primary)
                                 Spacer()
                                 if selected.contains(med.id) {

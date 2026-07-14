@@ -142,10 +142,22 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!resp.ok) {
-    return json({ error: "upstream_error", status: resp.status, detail: await resp.text() }, 502);
+    // Guard the body read too: a throwing resp.text() would otherwise become an uncaught bare 500,
+    // re-breaking the "500 means missing key only" contract. Any upstream fault stays a 502 (A7).
+    let detail = "";
+    try { detail = await resp.text(); } catch (e) { detail = `unreadable upstream body: ${String(e)}`; }
+    return json({ error: "upstream_error", status: resp.status, detail }, 502);
   }
 
-  const data = await resp.json();
+  // Guard the JSON read: a 200-OK-but-truncated/non-JSON upstream body would otherwise throw here and
+  // surface as an uncaught 500 — which the client used to mistake for "AI isn't configured" (AI1).
+  // A parse failure is a transient upstream fault (502), keeping 500 exclusively for the missing key.
+  let data;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    return json({ error: "upstream_unparseable", detail: String(e) }, 502);
+  }
 
   // Observability only: log token usage so per-parse cost is visible in Supabase function logs.
   // This never touches the response body (the client contract stays byte-for-byte identical) and

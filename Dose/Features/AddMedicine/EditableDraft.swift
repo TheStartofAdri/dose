@@ -137,18 +137,24 @@ final class EditableDraft: Identifiable {
         self.scheduleInferred = scheduleInferred
         self.confidence = confidence
 
-        // Only low-confidence flags are "must review" — and those are ACKNOWLEDGEABLE (a correct value
-        // can be confirmed without editing). An empty name is enforced separately by `trimmedName`.
+        // Any field the parser flagged as uncertain is "must review" — matching the server's own
+        // `requiresReview` signal (confidence != high, OR any uncertainFields, OR an inferred schedule),
+        // so a MEDIUM-confidence draft with an uncertain name/dosage is caught too, not only a low one
+        // (AI3). These flags are ACKNOWLEDGEABLE (a correct value can be confirmed without editing); an
+        // empty name is enforced separately by `trimmedName`.
         var must = Set<String>()
-        if source != .manual && confidence == .low {
-            if uncertainFields.contains("name") { must.insert("name") }
-            if uncertainFields.contains("dosage") { must.insert("dosage") }
+        if source != .manual {
+            // Low overall confidence ALWAYS makes name + dosage must-review, even if the model left
+            // `uncertainFields` empty — the prompt only guarantees it sets confidence low when the name or
+            // dosage is uncertain, so a low draft must never confirm with zero acknowledgement (A6).
+            let low = confidence == .low
+            if low || uncertainFields.contains("name") { must.insert("name") }
+            if low || uncertainFields.contains("dosage") { must.insert("dosage") }
         }
-        // An inferred or low-confidence SCHEDULE is also must-review: a wrong cadence is a dosing-safety
-        // error, and is otherwise the easiest wrong value to confirm. `scheduleInferred` flags it
-        // regardless of overall confidence — an inferred schedule is a guess even on a confidently-parsed
-        // drug. Acknowledgeable + editable exactly like name/dosage (no parallel mechanism).
-        if source != .manual && (scheduleInferred || (confidence == .low && uncertainFields.contains("schedule"))) {
+        // An inferred OR flagged SCHEDULE is also must-review: a wrong cadence is a dosing-safety error
+        // and the easiest wrong value to confirm. `scheduleInferred` flags it regardless of overall
+        // confidence — an inferred schedule is a guess even on a confidently-parsed drug.
+        if source != .manual && (scheduleInferred || uncertainFields.contains("schedule")) {
             must.insert("schedule")
         }
         self.mustEdit = must
@@ -227,7 +233,18 @@ final class EditableDraft: Identifiable {
     func wasAcknowledged(_ field: String) -> Bool { acknowledged.contains(field) }
 
     /// Confirm is blocked while the name is empty or any must-edit field is still untouched.
-    var blocksConfirm: Bool { trimmedName.isEmpty || !mustEdit.isEmpty }
+    var blocksConfirm: Bool { trimmedName.isEmpty || scheduleIncomplete || !mustEdit.isEmpty }
+
+    /// A chosen repeat mode whose selection is empty — "specific weekdays" or "days of month" with nothing
+    /// picked. The engine reads an empty `weekdays`/`daysOfMonth` as EVERY DAY, so confirming this would
+    /// silently create a daily schedule; block it until a day is chosen or the mode changes (A1).
+    var scheduleIncomplete: Bool {
+        switch repeatMode {
+        case .weekdays: return weekdays.isEmpty
+        case .daysOfMonth: return daysOfMonth.isEmpty
+        case .everyday, .everyNDays: return false
+        }
+    }
 
     func isUncertain(_ field: String) -> Bool { uncertainFields.contains(field) }
     func mustReview(_ field: String) -> Bool { mustEdit.contains(field) }

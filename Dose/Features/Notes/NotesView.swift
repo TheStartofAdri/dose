@@ -56,13 +56,15 @@ struct NotesView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No notes yet", systemImage: "note.text")
-        } description: {
-            Text("Jot anything down. You can analyze a note to draft a medicine — nothing is sent unless you choose to.")
-        } actions: {
-            Button { addNote() } label: { Label("New note", systemImage: "plus") }
-                .buttonStyle(.borderedProminent)
+        VStack {
+            Spacer()
+            DoseEmptyState(icon: "note.text",
+                           title: "No notes yet",
+                           message: "Jot anything down. You can analyze a note to draft a medicine — nothing is sent unless you choose to.") {
+                Button { addNote() } label: { Label("New note", systemImage: "plus") }
+                    .buttonStyle(.borderedProminent)
+            }
+            Spacer()
         }
     }
 
@@ -101,8 +103,11 @@ struct NotesView: View {
             if !note.resolvedTags.isEmpty { NoteTagChips(tags: note.resolvedTags) }
             HStack(spacing: DoseSpacing.md) {
                 Text(note.createdAt, format: .dateTime.month().day().hour().minute())
-                if let med = medicineName(note) {
-                    Label(med, systemImage: "pills.fill")
+                if let med = linkedMedicine(note) {
+                    HStack(spacing: 4) {
+                        MedicineIconBadge(iconName: med.iconName, colorHex: med.colorHex, size: 16)
+                        Text(med.name)
+                    }
                 }
                 if !note.photos.isEmpty {
                     Label("\(note.photos.count)", systemImage: "photo")
@@ -116,10 +121,12 @@ struct NotesView: View {
         .contentShape(Rectangle())
     }
 
-    private func medicineName(_ note: Note) -> String? {
+    private func linkedMedicine(_ note: Note) -> Medicine? {
         guard let id = note.medicineID else { return nil }
-        return medicines.first { $0.id == id }?.name
+        return medicines.first { $0.id == id }
     }
+
+    private func medicineName(_ note: Note) -> String? { linkedMedicine(note)?.name }
 
     private func addNote() {
         let note = Note(text: "")

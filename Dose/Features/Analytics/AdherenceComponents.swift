@@ -138,7 +138,7 @@ struct StreakBanner: View {
         case 0:  "Take a dose to start your streak"
         case 1:  "Nice start — keep it going"
         case 2...6: "You're building a habit"
-        default: "Great consistency 🎉"
+        default: "Great consistency"
         }
     }
 }

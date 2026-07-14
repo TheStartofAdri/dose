@@ -90,6 +90,17 @@ final class EditableDraftTests: XCTestCase {
         XCTAssertTrue(draft.blocksConfirm, "an empty name blocks confirm regardless of acknowledgements")
     }
 
+    /// AI3: a MEDIUM-confidence draft whose name the parser flagged uncertain must still require review
+    /// — the gate no longer keys off `.low` confidence alone, matching the server's `requiresReview`.
+    /// FAIL-BEFORE: the `confidence == .low` guard meant a medium+uncertain name wasn't flagged.
+    func testMediumConfidenceUncertainNameIsFlagged() {
+        let draft = EditableDraft(name: "Asprin", dosage: "100 mg", times: [.now],
+                                  source: .ai, uncertainFields: ["name"], confidence: .medium)
+        XCTAssertTrue(draft.mustReview("name"), "an uncertain name is must-review even at medium confidence")
+        XCTAssertTrue(draft.blocksConfirm)
+        XCTAssertFalse(draft.mustReview("dosage"), "a field the parser didn't flag isn't blocked")
+    }
+
     /// A high-confidence (or non-flagged) AI draft carries no must-review flags and confirms freely.
     func testHighConfidenceAIDraftHasNoFlags() {
         let draft = EditableDraft(name: "Aspirin", dosage: "100 mg", times: [.now],
@@ -151,6 +162,45 @@ final class EditableDraftTests: XCTestCase {
         let draft = EditableDraft(name: "Aspirin", dosage: "100 mg", times: [.now], source: .manual)
         XCTAssertFalse(draft.mustReview("schedule"), "a manual schedule is the user's own — never flagged")
         XCTAssertFalse(draft.blocksConfirm)
+    }
+
+    // MARK: - A1: an incomplete schedule selection must block confirm (not silently become daily)
+
+    /// FAIL-BEFORE: choosing "Specific weekdays" but selecting none persisted `weekdays: []`, which the
+    /// engine reads as EVERY DAY — a silent daily schedule. PASS-AFTER: confirm is blocked until a day is
+    /// chosen (or the mode is changed).
+    func testWeekdaysModeWithNoDaysSelectedBlocksConfirm() {
+        let draft = EditableDraft(name: "Aspirin", times: [.now], repeatMode: .weekdays, weekdays: [], source: .manual)
+        XCTAssertTrue(draft.blocksConfirm, "'specific weekdays' with none selected must block confirm")
+    }
+
+    func testDaysOfMonthModeWithNoDaysSelectedBlocksConfirm() {
+        let draft = EditableDraft(name: "Aspirin", times: [.now], repeatMode: .daysOfMonth, daysOfMonth: [], source: .manual)
+        XCTAssertTrue(draft.blocksConfirm, "'days of month' with none selected must block confirm")
+    }
+
+    func testWeekdaysModeWithASelectionDoesNotBlock() {
+        let draft = EditableDraft(name: "Aspirin", times: [.now], repeatMode: .weekdays, weekdays: [2, 4], source: .manual)
+        XCTAssertFalse(draft.blocksConfirm, "a chosen weekday is a complete schedule")
+    }
+
+    func testEverydayAndEveryNDaysNeverBlockOnSchedule() {
+        XCTAssertFalse(EditableDraft(name: "A", times: [.now], repeatMode: .everyday, source: .manual).blocksConfirm)
+        XCTAssertFalse(EditableDraft(name: "A", times: [.now], repeatMode: .everyNDays, source: .manual).blocksConfirm)
+    }
+
+    // MARK: - A6: a low-confidence AI draft must require review even if uncertainFields is empty
+
+    /// FAIL-BEFORE: the gate flagged name/dosage only when they appeared in `uncertainFields`, so a draft
+    /// the parser marked `confidence: .low` with an empty `uncertainFields` confirmed with zero review.
+    /// PASS-AFTER: low confidence always makes name + dosage must-review (the prompt's contract: low ⇒ the
+    /// name or dosage is uncertain).
+    func testLowConfidenceWithEmptyUncertainFieldsStillRequiresReview() {
+        let draft = EditableDraft(name: "Aspirin", dosage: "100 mg", times: [.now],
+                                  source: .ai, uncertainFields: [], confidence: .low)
+        XCTAssertTrue(draft.mustReview("name"))
+        XCTAssertTrue(draft.mustReview("dosage"))
+        XCTAssertTrue(draft.blocksConfirm, "a low-confidence draft can't be confirmed with no acknowledgement")
     }
 
     // MARK: - Every-N-days anchor must survive an edit (wrong-day dosing bug)

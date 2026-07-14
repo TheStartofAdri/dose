@@ -62,8 +62,11 @@ enum StreakCalculator {
         return slots
     }
 
-    /// A slot is a miss only if it has no `.taken`/`.skipped` resolution AND its grace window has
-    /// fully elapsed relative to `now` (so in-progress today never counts as missed).
+    /// A slot breaks the streak iff it resolves to `.missed` through the SAME engine Today and adherence
+    /// use — so a taken/skipped slot is neutral, an in-progress (upcoming/due) slot doesn't break, and a
+    /// still-snoozed slot is deferred to its snooze-until instead of being counted missed at
+    /// `scheduledFor + grace` (the bug: the streak disagreed with Today/adherence on a pending snooze).
+    /// Slots reach here already filtered to the med's lifetime (see `scheduledSlots`), so `canBeMissed`.
     private static func isMiss(
         medicineID: UUID,
         scheduledFor: Date,
@@ -71,13 +74,9 @@ enum StreakCalculator {
         now: Date,
         grace: TimeInterval
     ) -> Bool {
-        let resolved = logs.contains {
-            $0.medicineID == medicineID
-            && ExecutionEngine.sameSlot($0.scheduledFor, scheduledFor)
-            && ($0.action == .taken || $0.action == .skipped)
-        }
-        if resolved { return false }
-        return now > scheduledFor.addingTimeInterval(grace)
+        let latest = ExecutionEngine.latestLog(medicineID: medicineID, scheduledFor: scheduledFor, in: logs)
+        let (status, _) = ExecutionEngine.status(scheduledFor: scheduledFor, latest: latest, now: now, grace: grace)
+        return status == .missed
     }
 
     private static func previousDay(_ day: Date, calendar: Calendar) -> Date {

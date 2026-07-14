@@ -91,6 +91,10 @@ struct RootView: View {
                 NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, escalationEnabled: escalationEnabled)
                 BackgroundRefresh.scheduleNext()
                 Task { await NotificationScheduler.shared.refreshPermissionStatus() }
+                // Re-check entitlement on every foreground: a pure time-based lapse emits no
+                // `Transaction.updates`, so without this a subscription that expired while the app was
+                // warm would keep Premium unlocked until the next cold launch (S1).
+                Task { await SubscriptionStore.shared.refresh() }
             }
         }
         // If the store had to recover on launch, the user is looking at an empty list that's

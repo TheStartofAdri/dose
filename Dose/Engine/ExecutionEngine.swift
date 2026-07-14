@@ -27,7 +27,14 @@ struct DoseSlotRule: Sendable, Hashable {
     func applies(on day: Date, calendar: Calendar) -> Bool {
         let d = calendar.startOfDay(for: day)
         if !daysOfMonth.isEmpty {
-            return daysOfMonth.contains(calendar.component(.day, from: d))
+            let dayOfMonth = calendar.component(.day, from: d)
+            if daysOfMonth.contains(dayOfMonth) { return true }
+            // Clamp: a requested day beyond THIS month's length fires on the month's last day, so a
+            // "31st" (or "30th"/"29th") monthly dose is never silently skipped in Feb/Apr/Jun/Sep/Nov.
+            // Only the true last day clamps, and only for requested days that don't exist this month —
+            // so a real day (e.g. the 30th of a 31-day month) never spuriously also fires on the 31st.
+            let lastDay = calendar.range(of: .day, in: .month, for: d)?.count ?? dayOfMonth
+            return dayOfMonth == lastDay && daysOfMonth.contains { $0 > lastDay }
         }
         if intervalDays >= 2, let anchor = anchorDate {
             let a = calendar.startOfDay(for: anchor)
@@ -213,9 +220,25 @@ enum ExecutionEngine {
     static func sameSlot(_ a: Date, _ b: Date) -> Bool { abs(a.timeIntervalSince(b)) < 1 }
 
     static func latestLog(medicineID: UUID, scheduledFor: Date, in logs: [DoseLogSnapshot]) -> DoseLogSnapshot? {
-        logs
-            .filter { $0.medicineID == medicineID && sameSlot($0.scheduledFor, scheduledFor) }
-            .max { $0.actionedAt < $1.actionedAt }
+        let slotLogs = logs.filter { $0.medicineID == medicineID && sameSlot($0.scheduledFor, scheduledFor) }
+        // A terminal action (taken/skipped) SETTLES the slot: once one exists, a later `.snoozed` can't
+        // reopen it and erase the take (S4). Among same-precedence logs the latest wins; an exact
+        // `actionedAt` tie breaks deterministically by action rank (S3) so Today, History, and adherence
+        // — which receive logs in different orderings — always resolve a slot identically.
+        let terminal = slotLogs.filter { $0.action == .taken || $0.action == .skipped }
+        let pool = terminal.isEmpty ? slotLogs : terminal
+        return pool.max {
+            $0.actionedAt != $1.actionedAt ? $0.actionedAt < $1.actionedAt : actionRank($0.action) < actionRank($1.action)
+        }
+    }
+
+    /// Deterministic tie-break for logs with an identical `actionedAt` (higher wins): taken > skipped > snoozed.
+    private static func actionRank(_ action: DoseAction) -> Int {
+        switch action {
+        case .taken: return 2
+        case .skipped: return 1
+        case .snoozed: return 0
+        }
     }
 
     static func status(

@@ -6,6 +6,7 @@ enum ParserError: LocalizedError {
     case notConfigured       // backend not set up, or server missing its key
     case refusal             // stop_reason == "refusal"
     case incomplete          // stop_reason == "max_tokens"
+    case tooLong             // input exceeded the server's size cap (HTTP 400 "too_long")
     case server(Int)
     case unreachable         // transport-level: host won't resolve (-1003) or device offline (-1009)
     case network(String)     // any other transport failure (timeout, TLS, connection reset, …)
@@ -19,6 +20,8 @@ enum ParserError: LocalizedError {
             "Couldn't read that automatically. Please add the medicine manually."
         case .incomplete:
             "That was a bit too much to process. Try shorter input, or add it manually."
+        case .tooLong:
+            "That's too much text to read at once. Try scanning just the label with the name and directions, or add it manually."
         case .server(let code):
             "The parser had a problem (code \(code)). Please try again or add it manually."
         case .unreachable:

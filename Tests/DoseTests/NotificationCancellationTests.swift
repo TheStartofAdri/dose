@@ -144,10 +144,12 @@ final class NotificationCancellationTests: XCTestCase {
         XCTAssertEqual(Set(cancelled), Set(NotificationPlanner.slotIDs(med, slot)))
     }
 
-    /// "Remind in 10 min" on a heads-up arms an extra nudge but must NOT cancel the slot (the real
-    /// on-time reminder hasn't fired yet) and must NOT write a `.snoozed` log (the dose isn't due, and
-    /// a snooze log would distort the Today status of an upcoming dose).
-    func testSnoozeOnLeadTimeAddsNudgeWithoutCancellingSlotOrLogging() throws {
+    /// N1: a heads-up no longer offers "Remind in 10 min" (its category omits snooze), because that
+    /// nudge had no `.snoozed` log and was silently destroyed by the next reschedule. A snooze that
+    /// somehow still arrives for a lead-time kind is now a pure no-op — it must NOT arm a nudge that
+    /// would vanish, NOT cancel the slot, and NOT write a log.
+    /// FAIL-BEFORE: the handler armed a nudge (scheduled the snooze id). PASS-AFTER: nothing happens.
+    func testSnoozeOnLeadTimeIsNoOp() throws {
         let (handler, container) = try makeHandlerAndContainer()
         let med = UUID()
         let slot = Date(timeIntervalSince1970: 1_780_000_000)
@@ -161,11 +163,33 @@ final class NotificationCancellationTests: XCTestCase {
                                                scheduledFor: slot)
             }
         }
-        XCTAssertEqual(scheduled, [NotificationPlanner.snoozeID(med, slot)], "the extra nudge is armed")
+        XCTAssertTrue(scheduled.isEmpty, "no un-durable nudge is armed for a heads-up snooze")
         XCTAssertTrue(cancelled.isEmpty, "the real on-time reminder survives")
         XCTAssertNil(written)
         let logs = try container.mainContext.fetch(FetchDescriptor<DoseLog>())
         XCTAssertTrue(logs.isEmpty, "no .snoozed log for a not-yet-due dose")
+    }
+
+    /// The lead-time category exposes only Take + Skip; the dose category keeps the snooze action.
+    func testLeadTimeCategoryOmitsSnoozeButDoseCategoryKeepsIt() {
+        let cats = NotificationScheduler.categories()
+        let leadTime = cats.first { $0.identifier == NotificationScheduler.leadTimeCategoryID }
+        let dose = cats.first { $0.identifier == NotificationScheduler.categoryID }
+        XCTAssertNotNil(leadTime); XCTAssertNotNil(dose)
+        XCTAssertFalse(leadTime?.actions.contains { $0.identifier == NotificationScheduler.snoozeAction } ?? true,
+                       "a heads-up must not show 'Remind in 10 min'")
+        XCTAssertTrue(dose?.actions.contains { $0.identifier == NotificationScheduler.snoozeAction } ?? false,
+                      "a real dose reminder still offers snooze")
+    }
+
+    /// A lead-time content is stamped with the lead-time category (so the OS shows the snooze-free
+    /// buttons); a normal dose reminder keeps the dose category.
+    /// FAIL-BEFORE: lead-time content used the dose category. PASS-AFTER: it uses the lead-time one.
+    func testLeadTimeContentUsesLeadTimeCategory() {
+        let lead = NotificationScheduler.makeContent(name: "Aspirin", dosage: nil, leadMinutes: 30, userInfo: [:])
+        XCTAssertEqual(lead.categoryIdentifier, NotificationScheduler.leadTimeCategoryID)
+        let onTime = NotificationScheduler.makeContent(name: "Aspirin", dosage: nil, userInfo: [:])
+        XCTAssertEqual(onTime.categoryIdentifier, NotificationScheduler.categoryID)
     }
 
     // MARK: - A pending snooze must survive reschedule's wipe-and-replace
@@ -223,6 +247,28 @@ final class NotificationCancellationTests: XCTestCase {
         }
         XCTAssertTrue(scheduled.contains("refill.sentinel"),
                       "an ongoing schedule arms a coverage-end sentinel so reminders can't run out silently")
+    }
+
+    // MARK: - C2: a failed save must not cancel the reminder or read as success
+
+    /// If persisting the `DoseLog` fails, a take from a notification must NOT cancel the slot's pending
+    /// reminders (so the dose is re-prompted) and must return no log (no false success).
+    /// FAIL-BEFORE: `record` swallowed the error and returned a log, so the handler cancelled the slot
+    /// for a dose that never persisted. PASS-AFTER: no log, no cancellation.
+    func testFailedSaveDoesNotCancelReminderOrReportSuccess() throws {
+        let handler = try makeHandler()
+        let med = UUID()
+        let slot = Date(timeIntervalSince1970: 1_780_000_000)
+        DoseActionWriter.forceSaveFailureForTesting = true
+        defer { DoseActionWriter.forceSaveFailureForTesting = false }
+
+        var written: DoseLog?
+        let cancelled = captureCancellations {
+            written = handler.handleAction(NotificationScheduler.takeAction, medicineID: med, name: "Aspirin",
+                                           dosage: "100 mg", scheduledFor: slot)
+        }
+        XCTAssertNil(written, "a failed save returns no log — not a false success")
+        XCTAssertTrue(cancelled.isEmpty, "the slot's reminders must survive so the dose is re-prompted")
     }
 
     /// The Today take/skip path calls exactly `cancelSlot(medicineID:scheduledFor:)`; confirm it also

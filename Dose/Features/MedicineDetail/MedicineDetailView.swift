@@ -18,6 +18,7 @@ struct MedicineDetailView: View {
     @State private var showReport = false
     @State private var showPaywall = false
     @State private var actionSheetDose: TodayDose?
+    @State private var actionError: String?
     @ObservedObject private var subscription = SubscriptionStore.shared   // re-render on entitlement change
 
     var body: some View {
@@ -81,6 +82,15 @@ struct MedicineDetailView: View {
         } message: {
             Text("Removes the medicine and its schedule. Past dose history is still kept for your records.")
         }
+        .alert("Couldn't save that dose", isPresented: actionErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(actionError ?? "Please try again.")
+        }
+    }
+
+    private var actionErrorBinding: Binding<Bool> {
+        Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
     }
 
     @ViewBuilder
@@ -204,7 +214,10 @@ struct MedicineDetailView: View {
     /// Human-readable repeat pattern, mirroring the DoseSlotRule precedence.
     private func repeatSummary(_ dt: DoseTime) -> String {
         if !dt.daysOfMonth.isEmpty {
-            return "Days " + dt.daysOfMonth.sorted().map(String.init).joined(separator: ", ")
+            let days = dt.daysOfMonth.sorted().map(String.init).joined(separator: ", ")
+            // Days past a short month's length fire on that month's last day (DoseSlotRule.applies clamp).
+            let clamps = dt.daysOfMonth.contains { $0 > 28 }
+            return "Days \(days)" + (clamps ? " (or last day of month)" : "")
         }
         if dt.intervalDays >= 2 {
             return "Every \(dt.intervalDays) days"
@@ -220,9 +233,17 @@ struct MedicineDetailView: View {
     /// notification cancel/snooze), so logging from detail behaves identically to logging from Today.
     private func record(_ action: DoseAction, for dose: TodayDose, minutes: Int? = nil) {
         let snoozeMinutes = action == .snoozed ? (minutes ?? 10) : nil
-        DoseActionWriter.record(action, medicineID: dose.medicineID, medicineName: dose.medicineName,
-                                dosage: dose.dosage, scheduledFor: dose.scheduledFor,
-                                snoozeMinutes: snoozeMinutes, into: context)
+        // Cancel/re-arm reminders and confirm only after the save persisted (C2) — a failed write keeps
+        // the reminder and surfaces an error rather than silently dropping the dose.
+        do {
+            try DoseActionWriter.record(action, medicineID: dose.medicineID, medicineName: dose.medicineName,
+                                        dosage: dose.dosage, scheduledFor: dose.scheduledFor,
+                                        snoozeMinutes: snoozeMinutes, into: context)
+        } catch {
+            Haptics.error()
+            actionError = "Couldn't save that dose. Please try again."
+            return
+        }
         NotificationScheduler.shared.cancelSlot(medicineID: dose.medicineID, scheduledFor: dose.scheduledFor)
         if action == .snoozed {
             NotificationScheduler.shared.scheduleSnooze(
