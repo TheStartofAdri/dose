@@ -128,13 +128,33 @@ struct WeekView: View {
         let priorEnd = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: now)) ?? now
         let prior7 = AdherenceCalculator.days(medicines: meds, logs: logSnaps, from: priorStart, to: priorEnd, now: now)
         let metricWeeklies = TrackedMetric.active(metrics).map { metricWeekly($0, now: now, cal: cal) }
-        return InsightsEngine.highlights(
+        var highlights = InsightsEngine.highlights(
             currentStreak: StreakCalculator.currentStreak(medicines: meds, logs: logSnaps, now: now),
             missedThisWeek: AdherenceCalculator.missedCount(last7),
             missedLastWeek: AdherenceCalculator.missedCount(prior7),
             adherenceThisWeek: AdherenceCalculator.rate(last7),
             adherenceLastWeek: AdherenceCalculator.rate(prior7),
             metrics: metricWeeklies)
+        // A discovered pattern between two metrics ("on higher-pain days, sleep tended to be lower").
+        if let correlation = InsightsEngine.strongestCorrelation(metricDailySeries(now: now, cal: cal)) {
+            highlights.append(Highlight(icon: "link", title: correlation.sentence, tone: .neutral))
+        }
+        return highlights
+    }
+
+    /// Each active metric's per-day average over the last 30 days, for correlation.
+    private func metricDailySeries(now: Date, cal: Calendar) -> [InsightsEngine.MetricDailySeries] {
+        let cutoff = cal.date(byAdding: .day, value: -30, to: cal.startOfDay(for: now)) ?? now
+        return TrackedMetric.active(metrics).map { metric in
+            var sums: [Date: (total: Double, count: Int)] = [:]
+            for entry in metric.entries where entry.loggedAt >= cutoff {
+                guard let value = entry.chartValue else { continue }
+                let day = cal.startOfDay(for: entry.loggedAt)
+                let current = sums[day] ?? (0, 0)
+                sums[day] = (current.total + value, current.count + 1)
+            }
+            return InsightsEngine.MetricDailySeries(name: metric.name, daily: sums.mapValues { $0.total / Double($0.count) })
+        }
     }
 
     private func metricWeekly(_ metric: TrackedMetric, now: Date, cal: Calendar) -> MetricWeekly {

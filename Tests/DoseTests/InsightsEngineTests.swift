@@ -40,6 +40,25 @@ final class InsightsEngineTests: XCTestCase {
         XCTAssertTrue(h(metrics: [realChange]).contains { $0.title.contains("Weight trending up") && $0.tone == .neutral })
     }
 
+    private func day(_ d: Int) -> Date { Date(timeIntervalSince1970: Double(d) * 86_400) }
+
+    func testStrongestCorrelationFindsAndDescribesIt() {
+        let pain = InsightsEngine.MetricDailySeries(name: "Pain",
+            daily: Dictionary(uniqueKeysWithValues: (1...6).map { (day($0), Double($0)) }))          // 1…6
+        let sleep = InsightsEngine.MetricDailySeries(name: "Sleep",
+            daily: Dictionary(uniqueKeysWithValues: (1...6).map { (day($0), Double(7 - $0)) }))       // 6…1 (perfect inverse)
+        let corr = InsightsEngine.strongestCorrelation([pain, sleep])
+        XCTAssertEqual(corr?.r ?? 0, -1.0, accuracy: 0.0001)
+        XCTAssertEqual(corr?.dayCount, 6)
+        XCTAssertTrue(corr?.sentence.contains("tended to be lower") ?? false)
+    }
+
+    func testCorrelationNeedsEnoughSharedDays() {
+        let a = InsightsEngine.MetricDailySeries(name: "A", daily: [day(1): 1, day(2): 2, day(3): 3])   // only 3 shared
+        let b = InsightsEngine.MetricDailySeries(name: "B", daily: [day(1): 2, day(2): 4, day(3): 6])
+        XCTAssertNil(InsightsEngine.strongestCorrelation([a, b]), "needs ≥ 5 shared days")
+    }
+
     func testPearson() {
         XCTAssertEqual(InsightsEngine.pearson([1, 2, 3, 4], [2, 4, 6, 8])!, 1.0, accuracy: 0.0001)
         XCTAssertEqual(InsightsEngine.pearson([1, 2, 3, 4], [8, 6, 4, 2])!, -1.0, accuracy: 0.0001)

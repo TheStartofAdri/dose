@@ -85,6 +85,48 @@ enum InsightsEngine {
         return num / (dx.squareRoot() * dy.squareRoot())
     }
 
+    /// One metric's per-day average values (startOfDay → value), for correlation.
+    struct MetricDailySeries: Sendable, Equatable {
+        let name: String
+        let daily: [Date: Double]
+    }
+
+    /// A discovered relationship between two metrics over the days both were logged. Observational only —
+    /// a co-occurrence, never a causal or diagnostic claim.
+    struct Correlation: Equatable, Sendable {
+        let metricA: String
+        let metricB: String
+        let r: Double
+        let dayCount: Int
+        var sentence: String {
+            let strength = abs(r) >= 0.7 ? "strongly" : "somewhat"
+            let direction = r > 0 ? "higher" : "lower"
+            return "On days your \(metricA) was higher, \(metricB) tended to be \(direction) (\(strength) related, \(dayCount) days)."
+        }
+    }
+
+    /// The single strongest correlation among the metrics' daily series, if a pair clears the thresholds
+    /// (≥ `minDays` shared days and |r| ≥ `minR`). Pure. Deterministic tie order follows the input order.
+    static func strongestCorrelation(_ series: [MetricDailySeries], minDays: Int = 5, minR: Double = 0.5) -> Correlation? {
+        var best: Correlation?
+        for i in series.indices {
+            for j in series.indices where j > i {
+                let paired = pairedByDay(series[i], series[j])
+                guard paired.count >= minDays,
+                      let r = pearson(paired.map(\.0), paired.map(\.1)), abs(r) >= minR else { continue }
+                if best == nil || abs(r) > abs(best!.r) {
+                    best = Correlation(metricA: series[i].name, metricB: series[j].name, r: r, dayCount: paired.count)
+                }
+            }
+        }
+        return best
+    }
+
+    /// Values for the days present in BOTH series, ordered by day.
+    private static func pairedByDay(_ a: MetricDailySeries, _ b: MetricDailySeries) -> [(Double, Double)] {
+        a.daily.keys.filter { b.daily[$0] != nil }.sorted().map { (a.daily[$0]!, b.daily[$0]!) }
+    }
+
     private static func pct(_ rate: Double) -> Int { Int((rate * 100).rounded()) }
     private static func fmt(_ v: Double) -> String { v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v) }
     /// The minimum change worth surfacing: 1 point for a 0–10 symptom, else ~3% of the prior average.
