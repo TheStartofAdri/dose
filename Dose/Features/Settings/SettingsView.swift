@@ -6,6 +6,8 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Query private var medicines: [Medicine]
     @Query private var logs: [DoseLog]
+    @Query private var notes: [Note]
+    @Query private var trackedMetrics: [TrackedMetric]
 
     @AppStorage(SettingsKeys.soundEnabled) private var soundEnabled = true
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
@@ -17,6 +19,10 @@ struct SettingsView: View {
     @State private var showPaywall = false
     @State private var showReport = false
     @State private var manageSubscriptions = false
+    @State private var shareFile: ShareableFile?
+    @State private var confirmDeleteAll = false
+    @State private var healthStatus: String?
+    @State private var healthConnecting = false
 
     // Diagnostics: the startup reachability probe flips this when the AI backend host can't be reached.
     private let aiBackendHealth = AIBackendHealth.shared
@@ -69,6 +75,23 @@ struct SettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("exportReportRow")
+
+                    Button {
+                        exportAllData()
+                    } label: {
+                        Label("Export all my data (JSON)", systemImage: "arrow.down.doc")
+                            .foregroundStyle(.primary)
+                    }
+                    .accessibilityIdentifier("exportDataRow")
+                }
+
+                Section {
+                    Button(role: .destructive) { confirmDeleteAll = true } label: {
+                        Label("Delete all my data", systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("deleteAllRow")
+                } footer: {
+                    Text("Permanently removes every medicine, dose record, and note from this device. This can't be undone.")
                 }
 
                 // Shown only when there are archived medicines — the one place to restore or delete them.
@@ -80,6 +103,33 @@ struct SettingsView: View {
                             LabeledContent("Archived medicines", value: "\(Medicine.archived(medicines).count)")
                         }
                     }
+                }
+
+                Section {
+                    if HealthKitService.isAvailable {
+                        Button {
+                            Task { await connectHealth() }
+                        } label: {
+                            HStack {
+                                Label("Connect Apple Health", systemImage: "heart.fill")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if healthConnecting { ProgressView() }
+                            }
+                        }
+                        .disabled(healthConnecting)
+                        .accessibilityIdentifier("connectHealthRow")
+                        if let healthStatus {
+                            Text(healthStatus).font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("Apple Health isn't available on this device.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Apple Health")
+                } footer: {
+                    Text("Import vitals (weight, heart rate, glucose, oxygen) so you don't type them in, and save the vitals you log back to Health. Add a matching metric on the Track screen first.")
                 }
 
                 Section("Appearance") {
@@ -149,8 +199,37 @@ struct SettingsView: View {
             .sheet(isPresented: $showReport) {
                 NavigationStack { ReportOptionsView(preselected: nil) }
             }
+            .sheet(item: $shareFile) { file in ShareSheet(items: [file.url]) }
+            .confirmationDialog("Delete all data?", isPresented: $confirmDeleteAll, titleVisibility: .visible) {
+                Button("Delete everything", role: .destructive) { deleteAllData() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently removes every medicine, dose record, and note from this device.")
+            }
             .manageSubscriptionsSheet(isPresented: $manageSubscriptions)
         }
+    }
+
+    /// Export the full local dataset as a JSON file, then hand it to the system share sheet — nothing
+    /// leaves the device unless the user chooses a destination.
+    private func exportAllData() {
+        guard let url = try? DataExport.writeTempFile(medicines: medicines, logs: logs, notes: notes,
+                                                      metrics: trackedMetrics) else { return }
+        shareFile = ShareableFile(url: url)
+    }
+
+    /// The user's delete right: clear every model and cancel all reminders.
+    private func deleteAllData() {
+        try? context.delete(model: DoseLog.self)
+        try? context.delete(model: Note.self)        // cascades NotePhoto
+        try? context.delete(model: NotePhoto.self)
+        try? context.delete(model: DoseTime.self)
+        try? context.delete(model: Medicine.self)    // cascades any remaining DoseTime
+        try? context.delete(model: MetricEntry.self)
+        try? context.delete(model: TrackedMetric.self)
+        try? context.save()
+        NotificationScheduler.shared.reschedule(medicines: [], logs: [], escalationEnabled: escalationEnabled)
+        Haptics.light()
     }
 
     /// AI section footer — when consent is granted, explains what "Reset AI permission" does; otherwise
@@ -181,5 +260,22 @@ struct SettingsView: View {
 
     private func reschedule() {
         NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, escalationEnabled: escalationEnabled)
+    }
+
+    /// Request Health authorization for the HK-backed tracked metrics, then import recent vitals.
+    private func connectHealth() async {
+        healthConnecting = true
+        defer { healthConnecting = false }
+        let active = TrackedMetric.active(trackedMetrics)
+        guard HealthKitService.shared.hasSyncableMetrics(active) else {
+            healthStatus = "Add a vital like Weight, Heart rate, Glucose, or Oxygen on the Track screen first."
+            return
+        }
+        guard await HealthKitService.shared.requestAuthorization(for: active) else {
+            healthStatus = "Couldn't connect to Health."
+            return
+        }
+        let n = await HealthKitService.shared.importRecent(for: active, into: context)
+        healthStatus = n > 0 ? "Imported \(n) reading\(n == 1 ? "" : "s") from Health." : "Connected. No new readings to import."
     }
 }

@@ -37,6 +37,18 @@ final class Medicine {
     /// Free-text pack size / quantity (e.g. "100 ml", "30 tablets"). nil → not shown on detail.
     var quantity: String?
 
+    // New in v7 — refill / stock tracking, all optional/defaulted → lightweight migration. Stock is
+    // DERIVED, never mutated per-take (so Undo stays consistent, matching how adherence/streak derive
+    // from `DoseLog`): remaining = unitsAtRefill − unitsPerDose × (taken logs on/after refillDate).
+    /// Units in stock recorded at the last refill. nil = not tracking refills for this medicine.
+    var unitsAtRefill: Int?
+    /// When `unitsAtRefill` was captured — consumption counts taken logs on/after this instant. nil = unset.
+    var refillDate: Date?
+    /// Units consumed per dose (e.g. 2 tablets). Defaults to 1.
+    var unitsPerDose: Int = 1
+    /// Remind to refill when the projected days-of-supply falls to/below this. nil = no refill reminder.
+    var refillThresholdDays: Int?
+
     /// Recurring rules only — each `DoseTime` carries no status. Cascade-deleted with the medicine.
     @Relationship(deleteRule: .cascade, inverse: \DoseTime.medicine)
     var doseTimes: [DoseTime]
@@ -75,6 +87,10 @@ final class Medicine {
         instructions: String? = nil,
         leadTimeMinutes: Int? = nil,
         quantity: String? = nil,
+        unitsAtRefill: Int? = nil,
+        refillDate: Date? = nil,
+        unitsPerDose: Int = 1,
+        refillThresholdDays: Int? = nil,
         doseTimes: [DoseTime] = []
     ) {
         self.id = id
@@ -90,6 +106,10 @@ final class Medicine {
         self.instructions = instructions
         self.leadTimeMinutes = leadTimeMinutes
         self.quantity = quantity
+        self.unitsAtRefill = unitsAtRefill
+        self.refillDate = refillDate
+        self.unitsPerDose = unitsPerDose
+        self.refillThresholdDays = refillThresholdDays
         self.doseTimes = doseTimes
     }
 }

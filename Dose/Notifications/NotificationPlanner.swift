@@ -32,6 +32,10 @@ struct NotificationPlan: Sendable {
     /// the promised reminder while Today keeps showing "snoozed until…". Imminent by construction
     /// (≤ 10 min out), so they claim budget ahead of on-time.
     let snoozes: [WindowedReminder]
+    /// One "running low — refill soon" reminder per medicine that tracks stock and is projected to cross
+    /// its refill threshold within the horizon. LOWEST priority — filled only from leftover budget so it
+    /// never displaces a dose reminder — and not tied to any dose occurrence (wiped/rebuilt each reschedule).
+    let refills: [WindowedReminder]
     /// When doses exist BEYOND this plan's coverage (past the horizon, or past the truncation point
     /// when the 64-cap trims), one "open Dose to refresh" sentinel fires at the moment coverage runs
     /// out. One-shots are refilled only by app-opens and discretionary background refresh — without
@@ -45,9 +49,10 @@ struct NotificationPlan: Sendable {
     let baseTruncated: Bool
 
     /// Every reminder, in priority order — what the scheduler submits.
-    var windowed: [WindowedReminder] { snoozes + onTime + escalations + leadTime }
+    var windowed: [WindowedReminder] { snoozes + onTime + escalations + leadTime + refills }
     var total: Int {
-        snoozes.count + onTime.count + escalations.count + leadTime.count + (sentinelFireDate == nil ? 0 : 1)
+        snoozes.count + onTime.count + escalations.count + leadTime.count + refills.count
+            + (sentinelFireDate == nil ? 0 : 1)
     }
 }
 
@@ -186,14 +191,56 @@ enum NotificationPlanner {
             : []
         remaining = max(0, remaining - chosenEscalations.count)
 
-        // Lead-time heads-ups are LOWEST priority — only whatever budget is still left.
+        // Lead-time heads-ups are next-lowest priority — only whatever budget is still left.
         let chosenLeadtime = remaining > 0
             ? Array(leadtime.sorted { $0.fireDate < $1.fireDate }.prefix(remaining))
             : []
+        remaining = max(0, remaining - chosenLeadtime.count)
+
+        // Refill "running low" reminders are the LOWEST priority — they must never displace a dose
+        // reminder, so they take only leftover budget.
+        let refills = refillReminders(medicines: medicines, logs: logs, now: now, window: window, calendar: calendar)
+        let chosenRefills = remaining > 0
+            ? Array(refills.sorted { $0.fireDate < $1.fireDate }.prefix(remaining))
+            : []
 
         return NotificationPlan(onTime: onTime, escalations: chosenEscalations,
-                                leadTime: chosenLeadtime, snoozes: snoozes,
+                                leadTime: chosenLeadtime, snoozes: snoozes, refills: chosenRefills,
                                 sentinelFireDate: sentinelFireDate, baseTruncated: baseTruncated)
+    }
+
+    /// One "running low — refill soon" reminder per stock-tracking medicine whose projected run-out
+    /// crosses its threshold within the horizon. Fires at 10:00 on the crossing day (or the next morning
+    /// if that's already past), so it's stable across reschedules. Pure; uses `RefillCalculator`.
+    private static func refillReminders(medicines: [MedicineSnapshot], logs: [DoseLogSnapshot],
+                                        now: Date, window: TimeInterval, calendar: Calendar) -> [WindowedReminder] {
+        let windowDays = max(1, Int(window / 86_400))
+        var out: [WindowedReminder] = []
+        for medicine in medicines {
+            guard let threshold = medicine.refillThresholdDays, medicine.unitsAtRefill != nil,
+                  !medicine.rules.isEmpty else { continue }
+            let medLogs = logs.filter { $0.medicineID == medicine.id }
+            let remaining = RefillCalculator.unitsRemaining(unitsAtRefill: medicine.unitsAtRefill,
+                                                            refillDate: medicine.refillDate,
+                                                            unitsPerDose: medicine.unitsPerDose, logs: medLogs)
+            let perDay = RefillCalculator.averageDosesPerDay(rules: medicine.rules, from: now,
+                                                             window: windowDays, calendar: calendar)
+            guard let days = RefillCalculator.daysOfSupply(remaining: remaining,
+                                                           unitsPerDose: medicine.unitsPerDose,
+                                                           dosesPerDay: perDay) else { continue }
+            let offsetDays = max(0, days - threshold)
+            guard offsetDays <= windowDays else { continue }   // crossing too far out — a later refill picks it up
+            let crossingDay = calendar.date(byAdding: .day, value: offsetDays, to: calendar.startOfDay(for: now)) ?? now
+            var fire = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: crossingDay) ?? crossingDay
+            if fire <= now {
+                let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+                fire = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: tomorrow) ?? now.addingTimeInterval(3600)
+            }
+            out.append(WindowedReminder(id: medRefillID(medicine.id), medicineID: medicine.id,
+                                        medicineName: medicine.name, dosage: medicine.dosage,
+                                        fireDate: fire, scheduledFor: fire, isEscalation: false))
+        }
+        return out
     }
 
     // MARK: - Identifiers (deterministic per occurrence, so one slot can be removed without others)
@@ -220,6 +267,12 @@ enum NotificationPlanner {
     /// The single coverage-end sentinel (`NotificationPlan.sentinelFireDate`) — one per plan, replaced
     /// wholesale by every reschedule, never matched by `slotIDs`/`cancelSlot`.
     static let refillSentinelID = "refill.sentinel"
+
+    /// The one medication-refill ("running low") reminder per medicine — replaced wholesale by every
+    /// reschedule, never tied to a dose occurrence (so not matched by `slotIDs`/`cancelSlot`).
+    static func medRefillID(_ medicineID: UUID) -> String {
+        "medrefill.\(medicineID.uuidString)"
+    }
 
     /// Every reminder id for one dose occurrence — removed together when the dose is taken/skipped so
     /// NO further prompt (on-time, escalation, lead-time, OR a pending snooze) fires for that slot.

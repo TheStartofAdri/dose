@@ -7,6 +7,7 @@ struct TodayView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Medicine.name) private var medicines: [Medicine]
     @Query(sort: \DoseLog.scheduledFor) private var logs: [DoseLog]
+    @Query(sort: \TrackedMetric.sortOrder) private var metrics: [TrackedMetric]
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
 
     @State private var showingAdd = false
@@ -16,6 +17,8 @@ struct TodayView: View {
     @State private var detailMedicine: Medicine?
     @State private var actionSheetDose: TodayDose?
     @State private var actionError: String?
+    @State private var showingMetrics = false
+    @State private var loggingMetric: TrackedMetric?
 
     var body: some View {
         NavigationStack {
@@ -24,6 +27,10 @@ struct TodayView: View {
             }
             .navigationTitle("Today")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingMetrics = true } label: { Image(systemName: "heart.text.square") }
+                        .accessibilityLabel("Track symptoms and vitals")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingAdd = true } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Add medicine")
@@ -49,6 +56,41 @@ struct TodayView: View {
             } message: {
                 Text(actionError ?? "Please try again.")
             }
+            .sheet(isPresented: $showingMetrics) { MetricsView() }
+            .sheet(item: $loggingMetric) { LogMetricSheet(metric: $0) }
+        }
+    }
+
+    /// A gentle "today's check-ins" prompt: active metrics not yet logged today, as tappable chips.
+    /// Renders nothing when there are no metrics (or all are logged), so it never adds space — or
+    /// affects the Today card geometry — for medication-only users.
+    @ViewBuilder
+    private func checkInsSection(now: Date) -> some View {
+        let due = TrackedMetric.active(metrics).filter { !$0.hasEntryToday(now: now) }
+        if !due.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader("Today's check-ins")
+                    .padding(.horizontal, 16)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: DoseSpacing.sm) {
+                        ForEach(due) { metric in
+                            Button { loggingMetric = metric } label: {
+                                HStack(spacing: 6) {
+                                    MedicineIconBadge(iconName: metric.iconName, colorHex: metric.colorHex, size: 22)
+                                    Text(metric.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                }
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .background(DoseColors.cardBackground, in: Capsule())
+                                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.06)))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Log \(metric.name)")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+            .padding(.bottom, 12)
         }
     }
 
@@ -89,6 +131,7 @@ struct TodayView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
                 }
+                checkInsSection(now: now)
                 SectionHeader("Today's schedule")
                     .padding(.horizontal, 16)
                     .padding(.bottom, 4)

@@ -19,6 +19,8 @@ struct MedicineDetailView: View {
     @State private var showPaywall = false
     @State private var actionSheetDose: TodayDose?
     @State private var actionError: String?
+    @State private var showRefillPrompt = false
+    @State private var refillCountText = ""
     @ObservedObject private var subscription = SubscriptionStore.shared   // re-render on entitlement change
 
     var body: some View {
@@ -87,10 +89,69 @@ struct MedicineDetailView: View {
         } message: {
             Text(actionError ?? "Please try again.")
         }
+        .alert("How many are in the pack now?", isPresented: $showRefillPrompt) {
+            TextField("Count", text: $refillCountText).keyboardType(.numberPad)
+            Button("Save") { applyRefill() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Dose counts down from here as you take doses, and reminds you before you run out.")
+        }
     }
 
     private var actionErrorBinding: Binding<Bool> {
         Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
+    }
+
+    @ViewBuilder
+    private func refillSection(now: Date) -> some View {
+        Section("Refills") {
+            if medicine.isTrackingRefills {
+                let remaining = medicine.unitsRemaining(logs: allLogs)
+                let days = medicine.daysOfSupply(logs: allLogs, now: now)
+                HStack(spacing: 12) {
+                    Image(systemName: "pills.circle").foregroundStyle(DoseColors.accent)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(remaining.map { "\($0) left" } ?? "Refill tracking on")
+                            .font(.subheadline.weight(.medium))
+                        if let days {
+                            Text("about \(days) day\(days == 1 ? "" : "s") of supply")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if medicine.needsRefillSoon(logs: allLogs, now: now) {
+                        Label("Refill soon", systemImage: "exclamationmark.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(DoseColors.due)
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
+            } else {
+                Text("Track your pack to get a reminder before you run out.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Button {
+                refillCountText = medicine.unitsRemaining(logs: allLogs).map(String.init) ?? ""
+                showRefillPrompt = true
+            } label: {
+                Label(medicine.isTrackingRefills ? "I refilled this" : "Set pack count", systemImage: "arrow.clockwise")
+            }
+        }
+    }
+
+    /// Re-baseline stock: the entered count becomes the starting stock as of now, and consumption counts
+    /// forward. Enables tracking with a default threshold if it wasn't on, then reschedules so the
+    /// "running low" reminder reflects the new stock immediately.
+    private func applyRefill() {
+        guard let count = Int(refillCountText.trimmingCharacters(in: .whitespaces)), count >= 0 else { return }
+        medicine.unitsAtRefill = count
+        medicine.refillDate = .now
+        if medicine.refillThresholdDays == nil { medicine.refillThresholdDays = 7 }
+        try? context.save()
+        let meds = (try? context.fetch(FetchDescriptor<Medicine>())) ?? []
+        NotificationScheduler.shared.reschedule(medicines: meds, logs: allLogs, escalationEnabled: escalationEnabled)
+        refillCountText = ""
+        Haptics.light()
     }
 
     @ViewBuilder
@@ -164,6 +225,8 @@ struct MedicineDetailView: View {
                 }
                 LabeledContent("Treatment", value: treatmentSummary)
             }
+
+            refillSection(now: now)
 
             Section("Adherence") {
                 HStack {

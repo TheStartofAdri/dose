@@ -242,9 +242,9 @@ final class ScreenshotUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-skipAuth", "-seedHistoryDemo"]
         app.launch()
-        app.tabBars.buttons["Week"].tap()
+        app.tabBars.buttons["Insights"].tap()
         XCTAssertTrue(app.staticTexts["This Week"].waitForExistence(timeout: 10),
-                      "the Week tab shows the weekly overview")
+                      "the Insights tab shows the weekly overview")
         // The 14-day chart lives here now (moved off History).
         let chart = app.staticTexts["Last 14 days"]
         var tries = 0

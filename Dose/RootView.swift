@@ -58,7 +58,7 @@ struct RootView: View {
                     // stable and the -tab launch args keep working.
                     WeekView()
                         .tag(4)
-                        .tabItem { Label("Week", systemImage: "calendar") }
+                        .tabItem { Label("Insights", systemImage: "chart.line.uptrend.xyaxis") }
                     NotesView()
                         .tag(2)
                         .tabItem { Label("Notes", systemImage: "note.text") }

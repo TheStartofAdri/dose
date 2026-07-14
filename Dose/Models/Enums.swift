@@ -23,3 +23,24 @@ enum Confidence: String, Codable, Sendable {
     case medium
     case low
 }
+
+/// A tracked health metric's kind (v8) — a subjective **symptom** (0–10 severity) or an objective
+/// **vital** (a numeric measurement with a unit). Consumer-facing categories, not clinical codes.
+enum MetricKind: String, Codable, Sendable, CaseIterable, Identifiable {
+    case symptom
+    case vital
+    var id: String { rawValue }
+}
+
+/// How a metric's value is captured: a 0–10 severity scale (symptoms/mood/pain) or a free number with a
+/// unit (weight, blood pressure, glucose…).
+enum MetricValueKind: String, Codable, Sendable {
+    case severity   // Int 0...10
+    case number     // Double + unit
+}
+
+/// Where a `MetricEntry` came from — the user typed it, or it synced from HealthKit (Phase 3).
+enum MetricSource: String, Codable, Sendable {
+    case manual
+    case healthKit
+}

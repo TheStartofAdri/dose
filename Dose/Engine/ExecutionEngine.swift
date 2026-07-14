@@ -68,9 +68,17 @@ struct MedicineSnapshot: Sendable, Hashable, Identifiable {
     /// Optional "remind me N minutes before" heads-up (nil/0 = none). Used by the notification
     /// planner only; the adherence/Today engines ignore it.
     let leadTimeMinutes: Int?
+    /// Refill/stock fields (v7). Used by `RefillCalculator` + the notification planner's refill reminder;
+    /// the adherence/Today engines ignore them. Defaulted so existing call sites/tests are unaffected.
+    let unitsAtRefill: Int?
+    let refillDate: Date?
+    let unitsPerDose: Int
+    let refillThresholdDays: Int?
 
     init(id: UUID, name: String, dosage: String?, rules: [DoseSlotRule],
-         createdAt: Date = .distantPast, endDate: Date? = nil, leadTimeMinutes: Int? = nil) {
+         createdAt: Date = .distantPast, endDate: Date? = nil, leadTimeMinutes: Int? = nil,
+         unitsAtRefill: Int? = nil, refillDate: Date? = nil, unitsPerDose: Int = 1,
+         refillThresholdDays: Int? = nil) {
         self.id = id
         self.name = name
         self.dosage = dosage
@@ -78,6 +86,10 @@ struct MedicineSnapshot: Sendable, Hashable, Identifiable {
         self.createdAt = createdAt
         self.endDate = endDate
         self.leadTimeMinutes = leadTimeMinutes
+        self.unitsAtRefill = unitsAtRefill
+        self.refillDate = refillDate
+        self.unitsPerDose = unitsPerDose
+        self.refillThresholdDays = refillThresholdDays
     }
 }
 
@@ -304,7 +316,11 @@ extension Medicine {
             },
             createdAt: createdAt,
             endDate: endDate,
-            leadTimeMinutes: leadTimeMinutes
+            leadTimeMinutes: leadTimeMinutes,
+            unitsAtRefill: unitsAtRefill,
+            refillDate: refillDate,
+            unitsPerDose: unitsPerDose,
+            refillThresholdDays: refillThresholdDays
         )
     }
 }

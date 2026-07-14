@@ -43,6 +43,23 @@ final class ReportTests: XCTestCase {
         XCTAssertEqual(to, at(2026, 6, 12))
     }
 
+    // MARK: - Metrics in the report (Phase 4)
+
+    func testMetricSummariesComputedForReport() {
+        let inputs = [MetricReportInput(name: "Pain", unit: nil, values: [4, 6, 8]),
+                      MetricReportInput(name: "Weight", unit: "kg", values: [72, 73, 74])]
+        let data = ReportBuilder.build(medicines: [], logs: [], range: .last7, metricInputs: inputs,
+                                       now: at(2026, 6, 16, 12), calendar: cal)
+        XCTAssertEqual(data.metrics.count, 2)
+        let pain = try! XCTUnwrap(data.metrics.first { $0.name == "Pain" })
+        XCTAssertEqual(pain.count, 3)
+        XCTAssertEqual(pain.latest, 8)              // chronological → last value
+        XCTAssertEqual(pain.average!, 6, accuracy: 0.001)
+        XCTAssertEqual(pain.minimum, 4)
+        XCTAssertEqual(pain.maximum, 8)
+        XCTAssertEqual(data.metrics.first { $0.name == "Weight" }?.unit, "kg")
+    }
+
     // MARK: - Seam
 
     @MainActor

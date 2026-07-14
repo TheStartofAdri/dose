@@ -91,6 +91,10 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: "Dose reads medication labels you scan to fill in medicine details. Your medication list stays on your device."
+        # HealthKit — read vitals to reduce manual entry, and write the vitals you log so other apps see them.
+        # The capability must also be enabled in the provisioning profile for a device/App Store build.
+        NSHealthShareUsageDescription: "Dose can read vitals like weight, heart rate, glucose, and oxygen from the Health app so you don't have to type them in."
+        NSHealthUpdateUsageDescription: "Dose can save the vitals you log to the Health app so your other apps stay in sync."
         SupabaseURL: "https://$(SUPABASE_HOST)"
         SupabaseAnonKey: "$(SUPABASE_ANON_KEY)"
         # Background refill of windowed reminders (BGAppRefreshTask). The identifier MUST be listed

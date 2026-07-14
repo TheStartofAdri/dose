@@ -89,7 +89,9 @@ final class NotificationScheduler {
         for reminder in plan.onTime { addOnTime(reminder) }
         for reminder in plan.escalations { add(reminder, now: now) }
         for reminder in plan.leadTime { add(reminder, now: now) }
+        for reminder in plan.refills { addMedicationRefill(reminder, now: now) }
         if let fire = plan.sentinelFireDate { addRefillSentinel(fire: fire, now: now) }
+        addWeeklyDigest(hasData: !snapshots.isEmpty)
     }
 
     /// The coverage-end sentinel: a plain notification — no dose category (no Take/Skip buttons) and
@@ -106,6 +108,39 @@ final class NotificationScheduler {
                                                         repeats: false)
         submit(UNNotificationRequest(identifier: NotificationPlanner.refillSentinelID,
                                      content: content, trigger: trigger))
+    }
+
+    /// The weekly "your week in review" digest — a gentle Sunday-evening nudge to open Insights. A
+    /// REPEATING calendar trigger (survives without refill), re-created deterministically each reschedule.
+    /// Plain content (no dose category → tap is pure navigation, kind "digest"). Only when there's data.
+    static let weeklyDigestID = "weekly.digest"
+    private func addWeeklyDigest(hasData: Bool) {
+        guard hasData else { return }
+        var comps = DateComponents()
+        comps.weekday = 1   // Sunday
+        comps.hour = 18
+        let content = UNMutableNotificationContent()
+        content.title = "Your week in review"
+        content.body = "See how your week went — adherence, trends, and what changed."
+        content.sound = SettingsKeys.soundEnabled_default ? .default : nil
+        content.userInfo = ["kind": "digest"]
+        submit(UNNotificationRequest(identifier: Self.weeklyDigestID, content: content,
+                                     trigger: UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)))
+    }
+
+    /// A "running low — refill soon" reminder. Plain content (no dose category → no Take/Skip buttons, and
+    /// the action handler treats a tap as pure navigation), tagged `kind: "medrefill"` so it isn't a dose
+    /// prompt. Fires once at the projected crossing; the next reschedule recomputes from current stock.
+    private func addMedicationRefill(_ reminder: WindowedReminder, now: Date) {
+        let interval = reminder.fireDate.timeIntervalSince(now)
+        guard interval > 0 else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "\(reminder.medicineName) is running low"
+        content.body = "You're getting close to running out — time to refill."
+        content.sound = SettingsKeys.soundEnabled_default ? .default : nil
+        content.userInfo = ["medicineID": reminder.medicineID.uuidString, "kind": "medrefill"]
+        submit(UNNotificationRequest(identifier: reminder.id, content: content,
+                                     trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)))
     }
 
     /// Re-arms a snooze the planner reconstructed from the log after the wipe above — same content and
