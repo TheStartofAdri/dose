@@ -11,6 +11,7 @@ import SwiftData
 struct WeekView: View {
     @Query(sort: \Medicine.name) private var medicines: [Medicine]
     @Query(sort: \DoseLog.scheduledFor) private var logs: [DoseLog]
+    @Query(sort: \TrackedMetric.sortOrder) private var metrics: [TrackedMetric]
     @ObservedObject private var subscription = SubscriptionStore.shared   // re-render on entitlement change
 
     @State private var weekOffset = 0
@@ -76,18 +77,27 @@ struct WeekView: View {
         ScrollView {
             VStack(spacing: DoseSpacing.lg) {
                 switcher(weekStart: weekStart, weekEnd: weekEnd)
-                if meds.isEmpty {
-                    DoseEmptyState(icon: "calendar",
+                let trendMetrics = TrackedMetric.active(metrics).filter { !$0.entries.isEmpty }
+                if meds.isEmpty && trendMetrics.isEmpty {
+                    DoseEmptyState(icon: "chart.line.uptrend.xyaxis",
                                    title: "No data yet",
-                                   message: "Weekly stats appear once you're tracking medicines.")
+                                   message: "Insights appear once you're tracking medicines or logging metrics.")
                         .doseCardStyle()
                 } else {
-                    StreakBanner(streak: StreakCalculator.currentStreak(medicines: meds, logs: logSnaps, now: now))
-                    adherenceCard(rate: rate)
-                    tiles(taken: taken, skipped: skipped, snoozed: snoozed, total: total)
-                    missedSection(missedList)
-                    AdherenceChartCard(days: chart14)
-                    byMedicineSection(from: weekStart, to: weekEnd, now: now, logs: logSnaps)
+                    if !meds.isEmpty {
+                        StreakBanner(streak: StreakCalculator.currentStreak(medicines: meds, logs: logSnaps, now: now))
+                        adherenceCard(rate: rate)
+                        tiles(taken: taken, skipped: skipped, snoozed: snoozed, total: total)
+                        missedSection(missedList)
+                        AdherenceChartCard(days: chart14)
+                        byMedicineSection(from: weekStart, to: weekEnd, now: now, logs: logSnaps)
+                    }
+                    if !trendMetrics.isEmpty {
+                        SectionHeader("Metric trends").frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(trendMetrics) { metric in
+                            MetricTrendCard(metric: metric, entries: trendEntries(metric, now: now))
+                        }
+                    }
                 }
             }
             .padding(DoseSpacing.lg)
@@ -97,6 +107,14 @@ struct WeekView: View {
 
     private func base(now: Date, cal: Calendar) -> Date {
         cal.date(byAdding: .weekOfYear, value: weekOffset, to: now) ?? now
+    }
+
+    /// A metric's chartable entries over the last 30 days, oldest → newest, for its trend card.
+    private func trendEntries(_ metric: TrackedMetric, now: Date) -> [MetricEntry] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+        return metric.entries
+            .filter { $0.chartValue != nil && $0.loggedAt >= cutoff }
+            .sorted { $0.loggedAt < $1.loggedAt }
     }
 
     // MARK: Sections

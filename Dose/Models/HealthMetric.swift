@@ -102,3 +102,8 @@ extension TrackedMetric {
         entries.sorted { $0.loggedAt > $1.loggedAt }.prefix(limit).map { $0 }
     }
 }
+
+extension MetricEntry {
+    /// The numeric value for charting: the vital's value, or a symptom's severity as a Double.
+    var chartValue: Double? { value ?? severity.map(Double.init) }
+}
