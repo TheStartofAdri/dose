@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Care summary · Dose</title>
+<style>
+:root { color-scheme: light dark; }
+body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+       margin: 0; background: #f2f2f7; color: #1c1c1e; }
+@media (prefers-color-scheme: dark) { body { background: #000; color: #f2f2f7; } .card { background: #1c1c1e !important; } }
+.wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: #8e8e93; font-size: 13px; margin: 0 0 20px; }
+.card { background: #fff; border-radius: 14px; padding: 16px; margin: 0 0 14px; }
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .4px; color: #8e8e93; margin: 0 0 10px; }
+.row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(128,128,128,.15); }
+.row:first-of-type { border-top: 0; } .row .v { color: #8e8e93; text-align: right; }
+.big { font-size: 34px; font-weight: 700; margin: 2px 0; }
+.foot { color: #8e8e93; font-size: 12px; margin-top: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"><p class="sub">Loading…</p></div>
+<script>
+// The read-only caregiver viewer. Fetches a minimized snapshot from the caregiver-share function by the
+// token in the URL and renders it. All values go in via textContent (never innerHTML) → no injection.
+var FN = "https://xfyonvkcppjzcyqgjoau.supabase.co/functions/v1/caregiver-share";
+var token = new URLSearchParams(location.search).get("t");
+var root = document.getElementById("root");
+
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function fmt(iso) {
+  try { return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
+  catch (_) { return String(iso); }
+}
+function message(title, sub) {
+  root.innerHTML = "";
+  root.append(el("h1", null, title));
+  if (sub) root.append(el("p", "sub", sub));
+}
+function card(title) { var c = el("div", "card"); c.append(el("h2", null, title)); return c; }
+function row(label, value) {
+  var r = el("div", "row");
+  r.append(el("span", null, label));
+  r.append(el("span", "v", value));
+  return r;
+}
+
+function render(s) {
+  root.innerHTML = "";
+  var who = (s.patientLabel || "A patient") + "'s care summary";
+  root.append(el("h1", null, who));
+  root.append(el("p", "sub", "Read-only, shared from Dose" + (s.generatedAt ? " · updated " + fmt(s.generatedAt) : "")));
+
+  var a = card("Adherence · last " + (s.rangeDays || 30) + " days");
+  a.append(el("div", "big", s.overallAdherencePercent == null ? "—" : s.overallAdherencePercent + "%"));
+  a.append(el("div", "sub", "overall doses taken on time"));
+  (s.medicines || []).forEach(function (m) {
+    a.append(row(m.name, (m.adherencePercent == null ? "—" : m.adherencePercent + "%") +
+      " · " + (m.taken || 0) + " taken / " + (m.missed || 0) + " missed"));
+  });
+  root.append(a);
+
+  if ((s.upcomingAppointments || []).length) {
+    var c = card("Upcoming appointments");
+    s.upcomingAppointments.forEach(function (x) {
+      c.append(row(x.title + (x.subtitle ? " · " + x.subtitle : ""), fmt(x.when)));
+    });
+    root.append(c);
+  }
+
+  if ((s.metrics || []).length) {
+    var v = card("Recent symptoms & vitals");
+    s.metrics.forEach(function (m) {
+      v.append(row(m.name, m.latest == null ? "—" : (m.latest + (m.unit ? " " + m.unit : ""))));
+    });
+    root.append(v);
+  }
+
+  root.append(el("p", "foot", "A read-only summary shared by the patient. Not a medical record, and not medical advice."));
+}
+
+function main() {
+  if (!token) { message("Nothing to show", "This link is missing its share code."); return; }
+  fetch(FN + "?t=" + encodeURIComponent(token)).then(function (res) {
+    if (res.status === 404) { message("Share not found", "This share was revoked or never existed."); return null; }
+    if (res.status === 410) { message("Share expired", "Ask the patient for an updated link."); return null; }
+    if (!res.ok) { message("Something went wrong", "Please try again later."); return null; }
+    return res.json();
+  }).then(function (data) {
+    if (data && data.snapshot) render(data.snapshot);
+  }).catch(function () {
+    message("Couldn't load this summary", "Please check your connection and try again.");
+  });
+}
+main();
+</script>
+</body>
+</html>
