@@ -7,3 +7,10 @@ project_id = "dose"
 # default change) would silently open the endpoint to fully anonymous calls.
 [functions.parse-medication]
 verify_jwt = true
+
+# The caregiver-share view is a top-level browser navigation (a caregiver opening a link), which can't
+# send an Authorization header — so this function is PUBLIC and gated by the unguessable token in the
+# URL, not a JWT. Checked in explicitly so it's a deliberate, reviewable property of the repo. The app
+# still passes the anon key on POST/DELETE; the function's own auth is the random token + service role.
+[functions.caregiver-share]
+verify_jwt = false

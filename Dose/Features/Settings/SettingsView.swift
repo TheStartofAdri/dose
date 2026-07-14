@@ -19,6 +19,7 @@ struct SettingsView: View {
     @ObservedObject private var subscription = SubscriptionStore.shared
     @State private var showPaywall = false
     @State private var showReport = false
+    @State private var showCaregiverShare = false
     @State private var manageSubscriptions = false
     @State private var shareFile: ShareableFile?
     @State private var confirmDeleteAll = false
@@ -84,6 +85,18 @@ struct SettingsView: View {
                             .foregroundStyle(.primary)
                     }
                     .accessibilityIdentifier("exportDataRow")
+
+                    Button {
+                        if Entitlements.isPremium { showCaregiverShare = true } else { showPaywall = true }
+                    } label: {
+                        HStack {
+                            Label("Share with a caregiver", systemImage: "person.2")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            PROBadge()
+                        }
+                    }
+                    .accessibilityIdentifier("caregiverShareRow")
                 }
 
                 Section {
@@ -197,6 +210,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .sheet(isPresented: $showPaywall) { PaywallView(context: .upgrade) }
+            .sheet(isPresented: $showCaregiverShare) { CaregiverShareView() }
             .sheet(isPresented: $showReport) {
                 NavigationStack { ReportOptionsView(preselected: nil) }
             }

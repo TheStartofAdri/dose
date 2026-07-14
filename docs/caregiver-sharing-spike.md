@@ -84,3 +84,24 @@ This is 100% offline: it proves *what* would be shared without sending anything 
 - A share link is a bearer token → expiry + revoke + optional PIN.
 - Privacy-policy / legal review required before any server share ships.
 - The Supabase project has been prone to pausing (INACTIVE) — a shared-link backend needs reliability.
+
+## 9. Phase 1 status (Option A — signed read-only link)
+**Built (not yet deployed / not yet live):**
+- Backend: `supabase/functions/caregiver-share` (POST create / GET read-only HTML view / DELETE revoke),
+  `caregiver_shares` table with RLS deny-all + optional pg_cron purge, `verify_jwt = false` (token-gated).
+- App: `CaregiverShareClient` (create/revoke, tested via a stub transport), `CaregiverShareStore` (the one
+  active share, expiry-aware), and the **premium-gated, consent-first `CaregiverShareView`** in Settings.
+- The share payload is built from live data with **HealthKit-sourced values excluded** (Phase 0 builder).
+
+**To ship Phase 1 (your steps):**
+1. **Deploy** — `supabase db push` (creates the table) + `supabase functions deploy caregiver-share`,
+   with the project ACTIVE. (I can run these on your go-ahead, as with the parser deploy.)
+2. **Privacy policy** — update it to disclose the optional caregiver share: what's shared, that it's
+   stored on the server behind a private link, retention (auto-expire ≤ 7 days), and revocation. This is a
+   legal doc — please review/author the final wording.
+3. **Configure** — the app already reads `SupabaseURL`/`SupabaseAnonKey`; once deployed, the Settings row
+   lights up automatically (until then it shows an "isn't available in this build yet" state).
+4. **Device-verify** the create → open-link → revoke round-trip.
+
+**Deliberately still deferred:** optional PIN on the link, multiple caregivers, refresh-on-foreground,
+two-way (acknowledge/nudge), and the CloudKit-native path (§3 Option C).
