@@ -22,6 +22,12 @@ enum AppConfig {
         supabaseURL?.appending(path: "functions/v1/parse-medication")
     }
 
+    /// The caregiver-share edge function (create / revoke / read-only web view). Same Supabase project
+    /// as the parser; only present when the backend is configured.
+    static var caregiverShareEndpoint: URL? {
+        supabaseURL?.appending(path: "functions/v1/caregiver-share")
+    }
+
     /// True only when real Supabase values have been provided. AI/scan features check this
     /// before calling the network and surface a friendly "set up the backend" message otherwise.
     static var aiConfigured: Bool {
