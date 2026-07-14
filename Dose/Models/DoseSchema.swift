@@ -547,14 +547,121 @@ enum DoseSchemaV6: VersionedSchema {
     }
 }
 
-// MARK: - V7: the current schema — Medicine gained refill/stock tracking (`unitsAtRefill`, `refillDate`,
-// `unitsPerDose`, `refillThresholdDays`), all optional/defaulted → lightweight. `models` are the live
-// top-level types (no nested copies here), so V7 always tracks the current app models.
+// MARK: - V7: Medicine gained refill/stock tracking (unitsAtRefill/refillDate/unitsPerDose/
+// refillThresholdDays), all optional/defaulted → lightweight. FROZEN as nested copies now that V8 is live.
 
 enum DoseSchemaV7: VersionedSchema {
     static var versionIdentifier = Schema.Version(7, 0, 0)
     static var models: [any PersistentModel.Type] {
         [Medicine.self, DoseTime.self, DoseLog.self, Note.self, NotePhoto.self]
+    }
+
+    @Model final class Medicine {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var dosage: String?
+        var form: String?
+        var trustStateRaw: String
+        var isActive: Bool
+        var createdAt: Date
+        var iconName: String?
+        var colorHex: String?
+        var endDate: Date?
+        var instructions: String?
+        var leadTimeMinutes: Int?
+        var quantity: String?
+        var unitsAtRefill: Int?
+        var refillDate: Date?
+        var unitsPerDose: Int = 1
+        var refillThresholdDays: Int?
+        @Relationship(deleteRule: .cascade, inverse: \DoseTime.medicine) var doseTimes: [DoseTime]
+
+        init(id: UUID = UUID(), name: String, dosage: String? = nil, form: String? = nil,
+             trustStateRaw: String = "draft", isActive: Bool = true, createdAt: Date = .now,
+             iconName: String? = nil, colorHex: String? = nil, endDate: Date? = nil,
+             instructions: String? = nil, leadTimeMinutes: Int? = nil, quantity: String? = nil,
+             unitsAtRefill: Int? = nil, refillDate: Date? = nil, unitsPerDose: Int = 1,
+             refillThresholdDays: Int? = nil, doseTimes: [DoseTime] = []) {
+            self.id = id; self.name = name; self.dosage = dosage; self.form = form
+            self.trustStateRaw = trustStateRaw; self.isActive = isActive; self.createdAt = createdAt
+            self.iconName = iconName; self.colorHex = colorHex; self.endDate = endDate
+            self.instructions = instructions; self.leadTimeMinutes = leadTimeMinutes; self.quantity = quantity
+            self.unitsAtRefill = unitsAtRefill; self.refillDate = refillDate; self.unitsPerDose = unitsPerDose
+            self.refillThresholdDays = refillThresholdDays; self.doseTimes = doseTimes
+        }
+    }
+
+    @Model final class DoseTime {
+        var hour: Int
+        var minute: Int
+        var weekdays: [Int] = []
+        var intervalDays: Int = 0
+        var anchorDate: Date?
+        var daysOfMonth: [Int] = []
+        var medicine: Medicine?
+
+        init(hour: Int, minute: Int, weekdays: [Int] = [], intervalDays: Int = 0,
+             anchorDate: Date? = nil, daysOfMonth: [Int] = [], medicine: Medicine? = nil) {
+            self.hour = hour; self.minute = minute; self.weekdays = weekdays
+            self.intervalDays = intervalDays; self.anchorDate = anchorDate
+            self.daysOfMonth = daysOfMonth; self.medicine = medicine
+        }
+    }
+
+    @Model final class DoseLog {
+        @Attribute(.unique) var id: UUID
+        var medicineID: UUID
+        var medicineName: String
+        var dosage: String?
+        var scheduledFor: Date
+        var actionRaw: String
+        var actionedAt: Date
+        var snoozeMinutes: Int?
+
+        init(id: UUID = UUID(), medicineID: UUID, medicineName: String, dosage: String? = nil,
+             scheduledFor: Date, actionRaw: String, actionedAt: Date = .now, snoozeMinutes: Int? = nil) {
+            self.id = id; self.medicineID = medicineID; self.medicineName = medicineName
+            self.dosage = dosage; self.scheduledFor = scheduledFor; self.actionRaw = actionRaw
+            self.actionedAt = actionedAt; self.snoozeMinutes = snoozeMinutes
+        }
+    }
+
+    @Model final class Note {
+        @Attribute(.unique) var id: UUID
+        var text: String
+        var createdAt: Date
+        var tags: [String] = []
+        var medicineID: UUID?
+        @Relationship(deleteRule: .cascade, inverse: \NotePhoto.note) var photos: [NotePhoto] = []
+
+        init(id: UUID = UUID(), text: String = "", createdAt: Date = .now,
+             tags: [String] = [], medicineID: UUID? = nil, photos: [NotePhoto] = []) {
+            self.id = id; self.text = text; self.createdAt = createdAt
+            self.tags = tags; self.medicineID = medicineID; self.photos = photos
+        }
+    }
+
+    @Model final class NotePhoto {
+        @Attribute(.unique) var id: UUID
+        @Attribute(.externalStorage) var imageData: Data
+        var createdAt: Date
+        var note: Note?
+
+        init(id: UUID = UUID(), imageData: Data, createdAt: Date = .now, note: Note? = nil) {
+            self.id = id; self.imageData = imageData; self.createdAt = createdAt; self.note = note
+        }
+    }
+}
+
+// MARK: - V8: the current schema — added structured symptom/vitals logging (`TrackedMetric` +
+// `MetricEntry`, two brand-new entities). No existing row changes → lightweight. `models` are the live
+// top-level types (no nested copies), so V8 always tracks the current app models.
+
+enum DoseSchemaV8: VersionedSchema {
+    static var versionIdentifier = Schema.Version(8, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [Medicine.self, DoseTime.self, DoseLog.self, Note.self, NotePhoto.self,
+         TrackedMetric.self, MetricEntry.self]
     }
 }
 
@@ -564,7 +671,7 @@ enum DoseSchemaV7: VersionedSchema {
 enum DoseMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [DoseSchemaV1.self, DoseSchemaV2.self, DoseSchemaV3.self, DoseSchemaV4.self,
-         DoseSchemaV5.self, DoseSchemaV6.self, DoseSchemaV7.self]
+         DoseSchemaV5.self, DoseSchemaV6.self, DoseSchemaV7.self, DoseSchemaV8.self]
     }
     static var stages: [MigrationStage] {
         [
@@ -574,6 +681,7 @@ enum DoseMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: DoseSchemaV4.self, toVersion: DoseSchemaV5.self),
             .lightweight(fromVersion: DoseSchemaV5.self, toVersion: DoseSchemaV6.self),
             .lightweight(fromVersion: DoseSchemaV6.self, toVersion: DoseSchemaV7.self),
+            .lightweight(fromVersion: DoseSchemaV7.self, toVersion: DoseSchemaV8.self),
         ]
     }
 }
@@ -590,7 +698,7 @@ enum StoreLoadOutcome: Equatable {
 }
 
 enum DoseStore {
-    static var currentSchema: Schema { Schema(versionedSchema: DoseSchemaV7.self) }
+    static var currentSchema: Schema { Schema(versionedSchema: DoseSchemaV8.self) }
 
     /// The outcome of the most recent `makeContainer()` call, read by `DoseApp` to drive the recovery
     /// notice. `.normal` until proven otherwise.

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Query private var medicines: [Medicine]
     @Query private var logs: [DoseLog]
     @Query private var notes: [Note]
+    @Query private var trackedMetrics: [TrackedMetric]
 
     @AppStorage(SettingsKeys.soundEnabled) private var soundEnabled = true
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
@@ -183,7 +184,8 @@ struct SettingsView: View {
     /// Export the full local dataset as a JSON file, then hand it to the system share sheet — nothing
     /// leaves the device unless the user chooses a destination.
     private func exportAllData() {
-        guard let url = try? DataExport.writeTempFile(medicines: medicines, logs: logs, notes: notes) else { return }
+        guard let url = try? DataExport.writeTempFile(medicines: medicines, logs: logs, notes: notes,
+                                                      metrics: trackedMetrics) else { return }
         shareFile = ShareableFile(url: url)
     }
 
@@ -194,6 +196,8 @@ struct SettingsView: View {
         try? context.delete(model: NotePhoto.self)
         try? context.delete(model: DoseTime.self)
         try? context.delete(model: Medicine.self)    // cascades any remaining DoseTime
+        try? context.delete(model: MetricEntry.self)
+        try? context.delete(model: TrackedMetric.self)
         try? context.save()
         NotificationScheduler.shared.reschedule(medicines: [], logs: [], escalationEnabled: escalationEnabled)
         Haptics.light()

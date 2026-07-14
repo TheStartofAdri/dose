@@ -16,6 +16,7 @@ struct TodayView: View {
     @State private var detailMedicine: Medicine?
     @State private var actionSheetDose: TodayDose?
     @State private var actionError: String?
+    @State private var showingMetrics = false
 
     var body: some View {
         NavigationStack {
@@ -24,6 +25,10 @@ struct TodayView: View {
             }
             .navigationTitle("Today")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingMetrics = true } label: { Image(systemName: "heart.text.square") }
+                        .accessibilityLabel("Track symptoms and vitals")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingAdd = true } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Add medicine")
@@ -49,6 +54,7 @@ struct TodayView: View {
             } message: {
                 Text(actionError ?? "Please try again.")
             }
+            .sheet(isPresented: $showingMetrics) { MetricsView() }
         }
     }
 

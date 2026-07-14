@@ -20,11 +20,16 @@ final class DataExportTests: XCTestCase {
         ctx.insert(log)
         let note = Note(text: "felt fine", createdAt: t, tags: [NoteTag.general.rawValue])
         ctx.insert(note)
+        let metric = TrackedMetric(name: "Pain", kind: .symptom, valueKind: .severity, createdAt: t)
+        ctx.insert(metric)
+        ctx.insert(MetricEntry(severity: 6, loggedAt: t, metric: metric))
         try ctx.save()
 
-        let payload = DataExport.payload(medicines: [med], logs: [log], notes: [note],
+        let payload = DataExport.payload(medicines: [med], logs: [log], notes: [note], metrics: [metric],
                                          now: Date(timeIntervalSince1970: 1_800_000_000))
         XCTAssertEqual(payload.medicines.count, 1)
+        XCTAssertEqual(payload.metrics.count, 1)
+        XCTAssertEqual(payload.metrics.first?.entries.first?.severity, 6)
         XCTAssertEqual(payload.medicines.first?.unitsAtRefill, 30)
         XCTAssertEqual(payload.medicines.first?.refillThresholdDays, 7)
         XCTAssertEqual(payload.medicines.first?.schedule.first?.hour, 8)
