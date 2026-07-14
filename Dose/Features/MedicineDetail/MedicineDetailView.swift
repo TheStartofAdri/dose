@@ -149,7 +149,9 @@ struct MedicineDetailView: View {
         if medicine.refillThresholdDays == nil { medicine.refillThresholdDays = 7 }
         try? context.save()
         let meds = (try? context.fetch(FetchDescriptor<Medicine>())) ?? []
-        NotificationScheduler.shared.reschedule(medicines: meds, logs: allLogs, escalationEnabled: escalationEnabled)
+        let appts = (try? context.fetch(FetchDescriptor<Appointment>())) ?? []
+        NotificationScheduler.shared.reschedule(medicines: meds, logs: allLogs, appointments: appts,
+                                                escalationEnabled: escalationEnabled)
         refillCountText = ""
         Haptics.light()
     }

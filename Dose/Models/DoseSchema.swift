@@ -653,15 +653,161 @@ enum DoseSchemaV7: VersionedSchema {
     }
 }
 
-// MARK: - V8: the current schema — added structured symptom/vitals logging (`TrackedMetric` +
-// `MetricEntry`, two brand-new entities). No existing row changes → lightweight. `models` are the live
-// top-level types (no nested copies), so V8 always tracks the current app models.
+// MARK: - V8: added structured symptom/vitals logging (`TrackedMetric` + `MetricEntry`, two brand-new
+// entities). No existing row changes → lightweight. FROZEN as nested copies now that V9 is live, so
+// adding attributes to the live models can't silently change "8.0.0" and break in-place migration.
 
 enum DoseSchemaV8: VersionedSchema {
     static var versionIdentifier = Schema.Version(8, 0, 0)
     static var models: [any PersistentModel.Type] {
         [Medicine.self, DoseTime.self, DoseLog.self, Note.self, NotePhoto.self,
          TrackedMetric.self, MetricEntry.self]
+    }
+
+    @Model final class Medicine {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var dosage: String?
+        var form: String?
+        var trustStateRaw: String
+        var isActive: Bool
+        var createdAt: Date
+        var iconName: String?
+        var colorHex: String?
+        var endDate: Date?
+        var instructions: String?
+        var leadTimeMinutes: Int?
+        var quantity: String?
+        var unitsAtRefill: Int?
+        var refillDate: Date?
+        var unitsPerDose: Int = 1
+        var refillThresholdDays: Int?
+        @Relationship(deleteRule: .cascade, inverse: \DoseTime.medicine) var doseTimes: [DoseTime]
+
+        init(id: UUID = UUID(), name: String, dosage: String? = nil, form: String? = nil,
+             trustStateRaw: String = "draft", isActive: Bool = true, createdAt: Date = .now,
+             iconName: String? = nil, colorHex: String? = nil, endDate: Date? = nil,
+             instructions: String? = nil, leadTimeMinutes: Int? = nil, quantity: String? = nil,
+             unitsAtRefill: Int? = nil, refillDate: Date? = nil, unitsPerDose: Int = 1,
+             refillThresholdDays: Int? = nil, doseTimes: [DoseTime] = []) {
+            self.id = id; self.name = name; self.dosage = dosage; self.form = form
+            self.trustStateRaw = trustStateRaw; self.isActive = isActive; self.createdAt = createdAt
+            self.iconName = iconName; self.colorHex = colorHex; self.endDate = endDate
+            self.instructions = instructions; self.leadTimeMinutes = leadTimeMinutes; self.quantity = quantity
+            self.unitsAtRefill = unitsAtRefill; self.refillDate = refillDate; self.unitsPerDose = unitsPerDose
+            self.refillThresholdDays = refillThresholdDays; self.doseTimes = doseTimes
+        }
+    }
+
+    @Model final class DoseTime {
+        var hour: Int
+        var minute: Int
+        var weekdays: [Int] = []
+        var intervalDays: Int = 0
+        var anchorDate: Date?
+        var daysOfMonth: [Int] = []
+        var medicine: Medicine?
+
+        init(hour: Int, minute: Int, weekdays: [Int] = [], intervalDays: Int = 0,
+             anchorDate: Date? = nil, daysOfMonth: [Int] = [], medicine: Medicine? = nil) {
+            self.hour = hour; self.minute = minute; self.weekdays = weekdays
+            self.intervalDays = intervalDays; self.anchorDate = anchorDate
+            self.daysOfMonth = daysOfMonth; self.medicine = medicine
+        }
+    }
+
+    @Model final class DoseLog {
+        @Attribute(.unique) var id: UUID
+        var medicineID: UUID
+        var medicineName: String
+        var dosage: String?
+        var scheduledFor: Date
+        var actionRaw: String
+        var actionedAt: Date
+        var snoozeMinutes: Int?
+
+        init(id: UUID = UUID(), medicineID: UUID, medicineName: String, dosage: String? = nil,
+             scheduledFor: Date, actionRaw: String, actionedAt: Date = .now, snoozeMinutes: Int? = nil) {
+            self.id = id; self.medicineID = medicineID; self.medicineName = medicineName
+            self.dosage = dosage; self.scheduledFor = scheduledFor; self.actionRaw = actionRaw
+            self.actionedAt = actionedAt; self.snoozeMinutes = snoozeMinutes
+        }
+    }
+
+    @Model final class Note {
+        @Attribute(.unique) var id: UUID
+        var text: String
+        var createdAt: Date
+        var tags: [String] = []
+        var medicineID: UUID?
+        @Relationship(deleteRule: .cascade, inverse: \NotePhoto.note) var photos: [NotePhoto] = []
+
+        init(id: UUID = UUID(), text: String = "", createdAt: Date = .now,
+             tags: [String] = [], medicineID: UUID? = nil, photos: [NotePhoto] = []) {
+            self.id = id; self.text = text; self.createdAt = createdAt
+            self.tags = tags; self.medicineID = medicineID; self.photos = photos
+        }
+    }
+
+    @Model final class NotePhoto {
+        @Attribute(.unique) var id: UUID
+        @Attribute(.externalStorage) var imageData: Data
+        var createdAt: Date
+        var note: Note?
+
+        init(id: UUID = UUID(), imageData: Data, createdAt: Date = .now, note: Note? = nil) {
+            self.id = id; self.imageData = imageData; self.createdAt = createdAt; self.note = note
+        }
+    }
+
+    @Model final class TrackedMetric {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var kindRaw: String
+        var valueKindRaw: String
+        var unit: String?
+        var iconName: String?
+        var colorHex: String?
+        var isActive: Bool
+        var createdAt: Date
+        var sortOrder: Int
+        @Relationship(deleteRule: .cascade, inverse: \MetricEntry.metric) var entries: [MetricEntry]
+
+        init(id: UUID = UUID(), name: String, kindRaw: String, valueKindRaw: String,
+             unit: String? = nil, iconName: String? = nil, colorHex: String? = nil,
+             isActive: Bool = true, createdAt: Date = .now, sortOrder: Int = 0, entries: [MetricEntry] = []) {
+            self.id = id; self.name = name; self.kindRaw = kindRaw; self.valueKindRaw = valueKindRaw
+            self.unit = unit; self.iconName = iconName; self.colorHex = colorHex
+            self.isActive = isActive; self.createdAt = createdAt; self.sortOrder = sortOrder; self.entries = entries
+        }
+    }
+
+    @Model final class MetricEntry {
+        @Attribute(.unique) var id: UUID
+        var value: Double?
+        var severity: Int?
+        var note: String?
+        var loggedAt: Date
+        var sourceRaw: String
+        var metric: TrackedMetric?
+
+        init(id: UUID = UUID(), value: Double? = nil, severity: Int? = nil, note: String? = nil,
+             loggedAt: Date = .now, sourceRaw: String = "manual", metric: TrackedMetric? = nil) {
+            self.id = id; self.value = value; self.severity = severity; self.note = note
+            self.loggedAt = loggedAt; self.sourceRaw = sourceRaw; self.metric = metric
+        }
+    }
+}
+
+// MARK: - V9: the current schema — added `Appointment` (a single brand-new entity for scheduled
+// healthcare visits). No existing row changes → lightweight. `models` are the live top-level types
+// (no nested copies), so V9 always tracks the current app models.
+
+enum DoseSchemaV9: VersionedSchema {
+    static var versionIdentifier = Schema.Version(9, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [Medicine.self, DoseTime.self, DoseLog.self, Note.self, NotePhoto.self,
+         TrackedMetric.self, MetricEntry.self, Appointment.self]
     }
 }
 
@@ -671,7 +817,7 @@ enum DoseSchemaV8: VersionedSchema {
 enum DoseMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [DoseSchemaV1.self, DoseSchemaV2.self, DoseSchemaV3.self, DoseSchemaV4.self,
-         DoseSchemaV5.self, DoseSchemaV6.self, DoseSchemaV7.self, DoseSchemaV8.self]
+         DoseSchemaV5.self, DoseSchemaV6.self, DoseSchemaV7.self, DoseSchemaV8.self, DoseSchemaV9.self]
     }
     static var stages: [MigrationStage] {
         [
@@ -682,6 +828,7 @@ enum DoseMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: DoseSchemaV5.self, toVersion: DoseSchemaV6.self),
             .lightweight(fromVersion: DoseSchemaV6.self, toVersion: DoseSchemaV7.self),
             .lightweight(fromVersion: DoseSchemaV7.self, toVersion: DoseSchemaV8.self),
+            .lightweight(fromVersion: DoseSchemaV8.self, toVersion: DoseSchemaV9.self),
         ]
     }
 }
@@ -698,7 +845,7 @@ enum StoreLoadOutcome: Equatable {
 }
 
 enum DoseStore {
-    static var currentSchema: Schema { Schema(versionedSchema: DoseSchemaV8.self) }
+    static var currentSchema: Schema { Schema(versionedSchema: DoseSchemaV9.self) }
 
     /// The outcome of the most recent `makeContainer()` call, read by `DoseApp` to drive the recovery
     /// notice. `.normal` until proven otherwise.
@@ -811,6 +958,25 @@ enum DoseStore {
         med.doseTimes = [DoseSchemaV5.DoseTime(hour: 9, minute: 0)]   // daily → always on Today
         ctx.insert(med)
         ctx.insert(DoseSchemaV5.Note(text: "legacy note"))
+        try? ctx.save()
+    }
+
+    /// Writes a genuine V8 store (the shape just before the v9 `Appointment` addition) at the default
+    /// location, so a normal launch exercises the real V8 → V9 upgrade — the path a current on-device
+    /// store takes now.
+    static func writeLegacyStoreV8ForTesting() {
+        let url = defaultStoreURL
+        moveStoreAside(url)
+        let v8Schema = Schema(versionedSchema: DoseSchemaV8.self)
+        guard let v8 = try? ModelContainer(for: v8Schema, configurations: [ModelConfiguration(schema: v8Schema, url: url)]) else { return }
+        let ctx = ModelContext(v8)
+        let med = DoseSchemaV8.Medicine(name: "Legacy V8 Med", dosage: "10 mg", form: "tablet",
+                                        trustStateRaw: "confirmed", isActive: true, createdAt: .now)
+        med.doseTimes = [DoseSchemaV8.DoseTime(hour: 9, minute: 0)]   // daily → always on Today
+        ctx.insert(med)
+        let metric = DoseSchemaV8.TrackedMetric(name: "Pain", kindRaw: "symptom", valueKindRaw: "severity")
+        metric.entries = [DoseSchemaV8.MetricEntry(severity: 4)]
+        ctx.insert(metric)
         try? ctx.save()
     }
     #endif

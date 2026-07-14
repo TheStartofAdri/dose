@@ -10,6 +10,12 @@ enum DataExport {
         var doseLogs: [Log]
         var notes: [NoteDTO]
         var metrics: [MetricDTO] = []
+        var appointments: [AppointmentDTO] = []
+    }
+    struct AppointmentDTO: Codable, Equatable {
+        var id: UUID; var title: String; var providerName: String?; var location: String?
+        var startsAt: Date; var durationMinutes: Int?; var notes: String?
+        var reminderLeadMinutes: Int?; var createdAt: Date
     }
     struct MetricDTO: Codable, Equatable {
         var id: UUID; var name: String; var kind: String; var valueKind: String; var unit: String?
@@ -40,7 +46,8 @@ enum DataExport {
 
     @MainActor
     static func payload(medicines: [Medicine], logs: [DoseLog], notes: [Note],
-                        metrics: [TrackedMetric] = [], now: Date = .now) -> Payload {
+                        metrics: [TrackedMetric] = [], appointments: [Appointment] = [],
+                        now: Date = .now) -> Payload {
         Payload(
             exportedAt: now,
             medicines: medicines.map { m in
@@ -68,6 +75,11 @@ enum DataExport {
                     MetricEntryDTO(id: $0.id, value: $0.value, severity: $0.severity, note: $0.note,
                                    loggedAt: $0.loggedAt, source: $0.sourceRaw)
                 })
+            },
+            appointments: appointments.map { a in
+                AppointmentDTO(id: a.id, title: a.title, providerName: a.providerName, location: a.location,
+                               startsAt: a.startsAt, durationMinutes: a.durationMinutes, notes: a.notes,
+                               reminderLeadMinutes: a.reminderLeadMinutes, createdAt: a.createdAt)
             }
         )
     }
@@ -82,8 +94,10 @@ enum DataExport {
     /// Writes the export to a temp file and returns its URL (for the share sheet). Name includes the date.
     @MainActor
     static func writeTempFile(medicines: [Medicine], logs: [DoseLog], notes: [Note],
-                              metrics: [TrackedMetric] = [], now: Date = .now) throws -> URL {
-        let data = try encode(payload(medicines: medicines, logs: logs, notes: notes, metrics: metrics, now: now))
+                              metrics: [TrackedMetric] = [], appointments: [Appointment] = [],
+                              now: Date = .now) throws -> URL {
+        let data = try encode(payload(medicines: medicines, logs: logs, notes: notes, metrics: metrics,
+                                      appointments: appointments, now: now))
         let stamp = ISO8601DateFormatter().string(from: now).prefix(10)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Dose-export-\(stamp).json")
         try data.write(to: url, options: .atomic)

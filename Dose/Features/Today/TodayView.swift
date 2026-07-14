@@ -8,6 +8,7 @@ struct TodayView: View {
     @Query(sort: \Medicine.name) private var medicines: [Medicine]
     @Query(sort: \DoseLog.scheduledFor) private var logs: [DoseLog]
     @Query(sort: \TrackedMetric.sortOrder) private var metrics: [TrackedMetric]
+    @Query(sort: \Appointment.startsAt) private var appointments: [Appointment]
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
 
     @State private var showingAdd = false
@@ -19,6 +20,7 @@ struct TodayView: View {
     @State private var actionError: String?
     @State private var showingMetrics = false
     @State private var loggingMetric: TrackedMetric?
+    @State private var showingAppointments = false
 
     var body: some View {
         NavigationStack {
@@ -30,6 +32,10 @@ struct TodayView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingMetrics = true } label: { Image(systemName: "heart.text.square") }
                         .accessibilityLabel("Track symptoms and vitals")
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingAppointments = true } label: { Image(systemName: "calendar") }
+                        .accessibilityLabel("Appointments")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingAdd = true } label: { Image(systemName: "plus") }
@@ -58,6 +64,7 @@ struct TodayView: View {
             }
             .sheet(isPresented: $showingMetrics) { MetricsView() }
             .sheet(item: $loggingMetric) { LogMetricSheet(metric: $0) }
+            .sheet(isPresented: $showingAppointments) { AppointmentsView() }
         }
     }
 
@@ -130,6 +137,11 @@ struct TodayView: View {
                     )
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
+                }
+                if let nextAppt = Appointment.next(appointments, now: now) {
+                    NextAppointmentCard(appointment: nextAppt, now: now) { showingAppointments = true }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
                 }
                 checkInsSection(now: now)
                 SectionHeader("Today's schedule")

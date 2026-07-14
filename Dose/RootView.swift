@@ -5,6 +5,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Query private var medicines: [Medicine]
     @Query private var logs: [DoseLog]
+    @Query private var appointments: [Appointment]
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
     @AppStorage(SettingsKeys.appearance) private var appearance = "system"
     @ObservedObject private var subscription = SubscriptionStore.shared
@@ -88,7 +89,7 @@ struct RootView: View {
             // Refill the windowed horizon (and pick up any edits) whenever the app comes forward,
             // re-check that notifications are still permitted, and re-arm the background refill.
             if phase == .active {
-                NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, escalationEnabled: escalationEnabled)
+                NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, appointments: appointments, escalationEnabled: escalationEnabled)
                 BackgroundRefresh.scheduleNext()
                 Task { await NotificationScheduler.shared.refreshPermissionStatus() }
                 // Re-check entitlement on every foreground: a pure time-based lapse emits no

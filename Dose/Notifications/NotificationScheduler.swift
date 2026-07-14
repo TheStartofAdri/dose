@@ -77,10 +77,16 @@ final class NotificationScheduler {
     /// Rebuilds the entire schedule from the current confirmed medicines and their logs. `logs` lets the
     /// planner skip doses already taken/skipped, so a refill never resurrects a reminder for a recorded
     /// dose. On-time reminders are submitted first (their slots get first claim on the 64-cap).
-    func reschedule(medicines: [Medicine], logs: [DoseLog], escalationEnabled: Bool, now: Date = .now) {
+    func reschedule(medicines: [Medicine], logs: [DoseLog], appointments: [Appointment] = [],
+                    escalationEnabled: Bool, now: Date = .now) {
         let snapshots = Medicine.activeConfirmed(medicines).map { $0.snapshot() }
+        // Appointment reminders are planned first and their (bounded) count is RESERVED out of the dose
+        // budget, so doses + appointments together can never exceed the 64-slot iOS cap. Appointments
+        // never displace the soonest doses beyond this reserve.
+        let apptReminders = AppointmentReminderPlanner.reminders(appointments.map { $0.snapshot() }, now: now)
+        let doseBudget = max(0, NotificationPlanner.maxPending - apptReminders.count)
         let plan = NotificationPlanner.plan(medicines: snapshots, logs: logs.map { $0.snapshot() },
-                                            now: now, escalationEnabled: escalationEnabled)
+                                            now: now, escalationEnabled: escalationEnabled, budget: doseBudget)
         // Surface the 64-pending cap: if the plan had to drop reminders, the UI shows a notice.
         NotificationStatus.shared.update(from: plan)
 
@@ -91,6 +97,7 @@ final class NotificationScheduler {
         for reminder in plan.leadTime { add(reminder, now: now) }
         for reminder in plan.refills { addMedicationRefill(reminder, now: now) }
         if let fire = plan.sentinelFireDate { addRefillSentinel(fire: fire, now: now) }
+        for reminder in apptReminders { addAppointmentReminder(reminder, now: now) }
         addWeeklyDigest(hasData: !snapshots.isEmpty)
     }
 
@@ -139,6 +146,22 @@ final class NotificationScheduler {
         content.body = "You're getting close to running out — time to refill."
         content.sound = SettingsKeys.soundEnabled_default ? .default : nil
         content.userInfo = ["medicineID": reminder.medicineID.uuidString, "kind": "medrefill"]
+        submit(UNNotificationRequest(identifier: reminder.id, content: content,
+                                     trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)))
+    }
+
+    /// An appointment reminder. Plain content (no dose category → no Take/Skip buttons, and the action
+    /// handler treats a tap as pure navigation since there's no `medicineID`), tagged `kind: "appointment"`.
+    /// Fires once at (startsAt − lead); rebuilt wholesale by the next reschedule (deterministic id).
+    private func addAppointmentReminder(_ reminder: AppointmentReminder, now: Date) {
+        let interval = reminder.fireDate.timeIntervalSince(now)
+        guard interval > 0 else { return }
+        let content = UNMutableNotificationContent()
+        content.title = reminder.title
+        let whenLine = reminder.startsAt.formatted(date: .abbreviated, time: .shortened)
+        content.body = [reminder.subtitle, whenLine].compactMap { $0 }.joined(separator: " · ")
+        content.sound = SettingsKeys.soundEnabled_default ? .default : nil
+        content.userInfo = ["appointmentID": reminder.appointmentID.uuidString, "kind": "appointment"]
         submit(UNNotificationRequest(identifier: reminder.id, content: content,
                                      trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)))
     }
