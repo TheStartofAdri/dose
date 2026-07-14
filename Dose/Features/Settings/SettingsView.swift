@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Query private var medicines: [Medicine]
     @Query private var logs: [DoseLog]
+    @Query private var notes: [Note]
 
     @AppStorage(SettingsKeys.soundEnabled) private var soundEnabled = true
     @AppStorage(SettingsKeys.escalationEnabled) private var escalationEnabled = false
@@ -17,6 +18,8 @@ struct SettingsView: View {
     @State private var showPaywall = false
     @State private var showReport = false
     @State private var manageSubscriptions = false
+    @State private var shareFile: ShareableFile?
+    @State private var confirmDeleteAll = false
 
     // Diagnostics: the startup reachability probe flips this when the AI backend host can't be reached.
     private let aiBackendHealth = AIBackendHealth.shared
@@ -69,6 +72,23 @@ struct SettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("exportReportRow")
+
+                    Button {
+                        exportAllData()
+                    } label: {
+                        Label("Export all my data (JSON)", systemImage: "arrow.down.doc")
+                            .foregroundStyle(.primary)
+                    }
+                    .accessibilityIdentifier("exportDataRow")
+                }
+
+                Section {
+                    Button(role: .destructive) { confirmDeleteAll = true } label: {
+                        Label("Delete all my data", systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("deleteAllRow")
+                } footer: {
+                    Text("Permanently removes every medicine, dose record, and note from this device. This can't be undone.")
                 }
 
                 // Shown only when there are archived medicines — the one place to restore or delete them.
@@ -149,8 +169,34 @@ struct SettingsView: View {
             .sheet(isPresented: $showReport) {
                 NavigationStack { ReportOptionsView(preselected: nil) }
             }
+            .sheet(item: $shareFile) { file in ShareSheet(items: [file.url]) }
+            .confirmationDialog("Delete all data?", isPresented: $confirmDeleteAll, titleVisibility: .visible) {
+                Button("Delete everything", role: .destructive) { deleteAllData() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently removes every medicine, dose record, and note from this device.")
+            }
             .manageSubscriptionsSheet(isPresented: $manageSubscriptions)
         }
+    }
+
+    /// Export the full local dataset as a JSON file, then hand it to the system share sheet — nothing
+    /// leaves the device unless the user chooses a destination.
+    private func exportAllData() {
+        guard let url = try? DataExport.writeTempFile(medicines: medicines, logs: logs, notes: notes) else { return }
+        shareFile = ShareableFile(url: url)
+    }
+
+    /// The user's delete right: clear every model and cancel all reminders.
+    private func deleteAllData() {
+        try? context.delete(model: DoseLog.self)
+        try? context.delete(model: Note.self)        // cascades NotePhoto
+        try? context.delete(model: NotePhoto.self)
+        try? context.delete(model: DoseTime.self)
+        try? context.delete(model: Medicine.self)    // cascades any remaining DoseTime
+        try? context.save()
+        NotificationScheduler.shared.reschedule(medicines: [], logs: [], escalationEnabled: escalationEnabled)
+        Haptics.light()
     }
 
     /// AI section footer — when consent is granted, explains what "Reset AI permission" does; otherwise

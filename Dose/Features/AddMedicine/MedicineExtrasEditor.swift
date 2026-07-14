@@ -87,10 +87,49 @@ struct MedicineExtrasEditor: View {
             Text("Optionally send one extra reminder a few minutes before each dose. The on-time reminder is always sent.")
         }
 
+        refillSection
+
         Section("Instructions") {
             TextField("e.g. take with food, finish the course", text: $draft.instructions, axis: .vertical)
                 .lineLimit(1...4)
                 .textInputAutocapitalization(.sentences)
+        }
+    }
+
+    @ViewBuilder private var refillSection: some View {
+        Section {
+            Toggle("Remind me to refill", isOn: $draft.refillTrackingOn)
+            if draft.refillTrackingOn {
+                Stepper("\(draft.unitsPerDose) per dose", value: $draft.unitsPerDose, in: 1...20)
+                Stepper("Remind when ~\(draft.refillThresholdDays) day\(draft.refillThresholdDays == 1 ? "" : "s") left",
+                        value: $draft.refillThresholdDays, in: 1...60)
+                packCountControls
+            }
+        } header: {
+            Text("Refill reminder")
+        } footer: {
+            Text(draft.refillTrackingOn
+                 ? "Dose estimates how many days you have left from your schedule and reminds you before you run out."
+                 : "Track your pack and get a heads-up before you run out.")
+        }
+        // A new medicine needs a starting pack size the moment tracking is enabled; an edit keeps its
+        // existing count until you explicitly set a new one.
+        .onChange(of: draft.refillTrackingOn) { _, on in
+            if on && !draft.isEditingExisting && draft.refillNewStock == nil { draft.refillNewStock = 30 }
+        }
+    }
+
+    @ViewBuilder private var packCountControls: some View {
+        if let stock = draft.refillNewStock {
+            Stepper("Pack size: \(stock)", value: Binding(get: { stock }, set: { draft.refillNewStock = $0 }), in: 0...500)
+            if draft.isEditingExisting {
+                Button("Keep current count instead") { draft.refillNewStock = nil }
+                    .font(.callout)
+            }
+        } else {
+            // Editing with no new count queued → the current stock is preserved; offer to update it.
+            LabeledContent("Pack size", value: "Keeping current count")
+            Button("Set current pack count") { draft.refillNewStock = draft.refillStartingStock }
         }
     }
 }

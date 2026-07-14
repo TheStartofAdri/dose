@@ -80,6 +80,17 @@ final class EditableDraft: Identifiable {
     var endDateChoice: Date      // durationMode == .until
     var leadTimeMinutes: Int?    // optional "remind me N min before" heads-up (nil = none)
 
+    // Refill reminder config (v7). The stock BASELINE lives on the Medicine; this flow re-baselines it
+    // only when `refillNewStock` is provided (blank = keep current, so an unrelated edit never resets
+    // consumption). `existing*` carry the medicine's current baseline through an edit unchanged.
+    var refillTrackingOn: Bool
+    var refillThresholdDays: Int     // remind when projected days-of-supply ≤ this (when tracking)
+    var unitsPerDose: Int            // units consumed per dose
+    var refillNewStock: Int?         // nil = keep the baseline; a value = set/replace it (refillDate → now)
+    let isEditingExisting: Bool      // true when editing a saved medicine (drives refill re-baseline UX)
+    private let existingUnitsAtRefill: Int?
+    private let existingRefillDate: Date?
+
     // Parser metadata — drives the review screen's confidence treatment.
     let source: Source
     let uncertainFields: Set<String>
@@ -110,6 +121,13 @@ final class EditableDraft: Identifiable {
         durationDays: Int = 7,
         endDateChoice: Date = .now,
         leadTimeMinutes: Int? = nil,
+        refillTrackingOn: Bool = false,
+        refillThresholdDays: Int = 7,
+        unitsPerDose: Int = 1,
+        refillNewStock: Int? = nil,
+        isEditingExisting: Bool = false,
+        existingUnitsAtRefill: Int? = nil,
+        existingRefillDate: Date? = nil,
         source: Source = .manual,
         uncertainFields: Set<String> = [],
         scheduleInferred: Bool = false,
@@ -132,6 +150,13 @@ final class EditableDraft: Identifiable {
         self.durationDays = durationDays
         self.endDateChoice = endDateChoice
         self.leadTimeMinutes = leadTimeMinutes
+        self.refillTrackingOn = refillTrackingOn
+        self.refillThresholdDays = refillThresholdDays
+        self.unitsPerDose = unitsPerDose
+        self.refillNewStock = refillNewStock
+        self.isEditingExisting = isEditingExisting
+        self.existingUnitsAtRefill = existingUnitsAtRefill
+        self.existingRefillDate = existingRefillDate
         self.source = source
         self.uncertainFields = uncertainFields
         self.scheduleInferred = scheduleInferred
@@ -217,6 +242,12 @@ final class EditableDraft: Identifiable {
             durationMode: medicine.endDate != nil ? .until : .ongoing,
             endDateChoice: medicine.endDate ?? .now,
             leadTimeMinutes: medicine.leadTimeMinutes,
+            refillTrackingOn: medicine.refillThresholdDays != nil,
+            refillThresholdDays: medicine.refillThresholdDays ?? 7,
+            unitsPerDose: medicine.unitsPerDose,
+            isEditingExisting: true,
+            existingUnitsAtRefill: medicine.unitsAtRefill,
+            existingRefillDate: medicine.refillDate,
             source: .manual
         )
     }
@@ -231,6 +262,9 @@ final class EditableDraft: Identifiable {
     /// (deliberate "Looks right" tap), clearing the block without changing the value.
     func acknowledge(_ field: String) { mustEdit.remove(field); acknowledged.insert(field) }
     func wasAcknowledged(_ field: String) -> Bool { acknowledged.contains(field) }
+
+    /// A sensible starting number for the "set current pack count" control (the last baseline, or 30).
+    var refillStartingStock: Int { existingUnitsAtRefill ?? 30 }
 
     /// Confirm is blocked while the name is empty or any must-edit field is still untouched.
     var blocksConfirm: Bool { trimmedName.isEmpty || scheduleIncomplete || !mustEdit.isEmpty }
@@ -289,8 +323,31 @@ final class EditableDraft: Identifiable {
         medicine.instructions = instructions.trimmedNilIfEmpty
         medicine.endDate = resolvedEndDate(start: medicine.createdAt)
         medicine.leadTimeMinutes = leadTimeMinutes
+        applyRefill(to: medicine)
         medicine.trustState = .confirmed
         medicine.doseTimes = newDoseTimes
+    }
+
+    /// Persist the refill config. Re-baselines the stock (unitsAtRefill/refillDate → now) ONLY when the
+    /// user provided a new pack size; otherwise the existing baseline is preserved so an unrelated edit
+    /// never resets consumption tracking. Tracking off clears everything.
+    private func applyRefill(to medicine: Medicine) {
+        guard refillTrackingOn else {
+            medicine.unitsAtRefill = nil
+            medicine.refillDate = nil
+            medicine.refillThresholdDays = nil
+            medicine.unitsPerDose = 1
+            return
+        }
+        medicine.refillThresholdDays = max(1, refillThresholdDays)
+        medicine.unitsPerDose = max(1, unitsPerDose)
+        if let newStock = refillNewStock {
+            medicine.unitsAtRefill = max(0, newStock)
+            medicine.refillDate = .now
+        } else {
+            medicine.unitsAtRefill = existingUnitsAtRefill
+            medicine.refillDate = existingRefillDate
+        }
     }
 
     /// The treatment end date this draft resolves to (nil = ongoing). "For N days" counts inclusively
