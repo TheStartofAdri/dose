@@ -310,4 +310,58 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<NotePhoto>()).count, 0, "cascade removed the note's photos")
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<Note>()).count, 1, "the other note remains")
     }
+
+    /// v9 migration: a store at V8 (before the `Appointment` entity) must upgrade to V9 lightweight —
+    /// meds/metrics/entries preserved and the brand-new `Appointment` entity usable in the migrated
+    /// store. The container opening at all with the plan proves the V8 → V9 hop is lightweight (a
+    /// non-lightweight change would throw here instead of shipping a store-mangling migration).
+    func testUpgradeFromV8StorePreservesDataAndAddsAppointments() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dose-migrate-v8-\(UUID().uuidString).store")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+
+        let medID = UUID()
+        let metricID = UUID()
+
+        // 1) Write a store under the V8 (pre-Appointment) schema — meds + a tracked metric with an entry.
+        do {
+            let v8Schema = Schema(versionedSchema: DoseSchemaV8.self)
+            let v8 = try ModelContainer(for: v8Schema, configurations: [ModelConfiguration(schema: v8Schema, url: url)])
+            let ctx = ModelContext(v8)
+            let med = DoseSchemaV8.Medicine(id: medID, name: "Amoxicillin", dosage: "500 mg", form: "capsule",
+                                            trustStateRaw: "confirmed", isActive: true, createdAt: .now)
+            med.doseTimes = [DoseSchemaV8.DoseTime(hour: 9, minute: 0, weekdays: [2, 4, 6])]
+            ctx.insert(med)
+            let metric = DoseSchemaV8.TrackedMetric(id: metricID, name: "Pain", kindRaw: "symptom", valueKindRaw: "severity")
+            metric.entries = [DoseSchemaV8.MetricEntry(severity: 6)]
+            ctx.insert(metric)
+            try ctx.save()
+        }
+
+        // 2) Open the SAME file with the CURRENT schema (V9) + the migration plan (V8 → V9).
+        let current = try ModelContainer(for: DoseStore.currentSchema, migrationPlan: DoseMigrationPlan.self,
+                                         configurations: [ModelConfiguration(schema: DoseStore.currentSchema, url: url)])
+        let ctx = ModelContext(current)
+
+        // Existing data survived the upgrade.
+        let med = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Medicine>()).first)
+        XCTAssertEqual(med.id, medID)
+        XCTAssertEqual(med.doseTimes.first?.weekdays, [2, 4, 6], "schedule preserved")
+        let metric = try XCTUnwrap(try ctx.fetch(FetchDescriptor<TrackedMetric>()).first)
+        XCTAssertEqual(metric.id, metricID)
+        XCTAssertEqual(metric.entries.first?.severity, 6, "metric entry preserved")
+
+        // The brand-new Appointment entity is empty after migration, then usable + persists.
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Appointment>()).count, 0, "no appointments in a migrated store")
+        let apptID = UUID()
+        let starts = Date(timeIntervalSince1970: 1_800_000_000)
+        ctx.insert(Appointment(id: apptID, title: "Cardiology follow-up", providerName: "Dr. Smith",
+                               location: "City Clinic", startsAt: starts, reminderLeadMinutes: 1440))
+        try ctx.save()
+        let appt = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Appointment>()).first)
+        XCTAssertEqual(appt.id, apptID)
+        XCTAssertEqual(appt.title, "Cardiology follow-up")
+        XCTAssertEqual(appt.providerName, "Dr. Smith")
+        XCTAssertEqual(appt.startsAt, starts, "appointment persists after migration")
+    }
 }
