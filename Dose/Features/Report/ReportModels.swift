@@ -32,6 +32,20 @@ struct ReportData {
     let generatedAt: Date
     let lines: [MedLine]
     let summary: Summary
+    /// Tracked symptoms/vitals over the range — a clinically-legible companion to the adherence lines.
+    let metrics: [MetricSummary]
+
+    /// One tracked metric's stats over the report range (count/latest/average/range), for the PDF.
+    struct MetricSummary: Identifiable {
+        let id: UUID
+        let name: String
+        let unit: String?
+        let count: Int
+        let latest: Double?
+        let average: Double?
+        let minimum: Double?
+        let maximum: Double?
+    }
 
     /// At-a-glance totals across all selected medicines, so a first-time reader can tell how much
     /// was tracked. Aggregated from the same per-med `AdherenceCalculator` series → matches the app.

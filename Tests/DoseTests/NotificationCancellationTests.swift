@@ -271,6 +271,28 @@ final class NotificationCancellationTests: XCTestCase {
         XCTAssertTrue(cancelled.isEmpty, "the slot's reminders must survive so the dose is re-prompted")
     }
 
+    /// The weekly "your week in review" digest is armed when there's data, and not when the list is empty.
+    func testRescheduleAddsWeeklyDigestOnlyWhenMedicinesExist() throws {
+        let schema = DoseStore.currentSchema
+        let container = try ModelContainer(for: schema,
+                                           configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let ctx = ModelContext(container)
+        let med = Medicine(name: "Aspirin", trustState: .confirmed)
+        let dt = DoseTime(hour: 8, minute: 0)
+        med.doseTimes = [dt]
+        ctx.insert(med); ctx.insert(dt)
+
+        let withData = captureScheduled {
+            NotificationScheduler.shared.reschedule(medicines: [med], logs: [], escalationEnabled: false)
+        }
+        XCTAssertTrue(withData.contains(NotificationScheduler.weeklyDigestID), "digest armed when there's data")
+
+        let empty = captureScheduled {
+            NotificationScheduler.shared.reschedule(medicines: [], logs: [], escalationEnabled: false)
+        }
+        XCTAssertFalse(empty.contains(NotificationScheduler.weeklyDigestID), "no digest with nothing to review")
+    }
+
     /// The Today take/skip path calls exactly `cancelSlot(medicineID:scheduledFor:)`; confirm it also
     /// removes the slot's snooze (the same mechanism the notification path uses).
     func testTodayPathCancelSlotRemovesTheSnooze() {

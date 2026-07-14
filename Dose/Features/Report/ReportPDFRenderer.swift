@@ -123,6 +123,23 @@ enum ReportPDFRenderer {
                 y += 16
             }
 
+            // Symptoms & vitals — a clinically-legible companion to adherence.
+            if !data.metrics.isEmpty {
+                y += 8
+                ensure(60)
+                draw("Symptoms & Vitals", font: .boldSystemFont(ofSize: 15), spacingAfter: 4)
+                func f(_ v: Double?) -> String {
+                    v.map { $0 == $0.rounded() ? String(Int($0)) : String(format: "%.1f", $0) } ?? "—"
+                }
+                for m in data.metrics {
+                    ensure(40)
+                    draw(m.name, font: .boldSystemFont(ofSize: 13), spacingAfter: 1)
+                    let unit = m.unit.map { " \($0)" } ?? ""
+                    let detail = "\(m.count) log\(m.count == 1 ? "" : "s")  ·  latest \(f(m.latest))\(unit)  ·  avg \(f(m.average))\(unit)  ·  range \(f(m.minimum))–\(f(m.maximum))\(unit)"
+                    draw(detail, font: .systemFont(ofSize: 12), color: .secondaryLabel, spacingAfter: 8)
+                }
+            }
+
             drawLegend()
         }
     }

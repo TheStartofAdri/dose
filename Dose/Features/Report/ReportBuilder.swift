@@ -3,11 +3,21 @@ import Foundation
 /// Builds `ReportData` purely from snapshots, reusing `AdherenceCalculator` so the report's numbers
 /// match the rest of the app exactly (Skip neutral; pre-`createdAt` and post-`endDate` days excluded;
 /// past-due untaken = missed). No PDF/UIKit here.
+/// A tracked metric's chronological values within the report range — the pure input the builder needs
+/// (the view maps `TrackedMetric`/`MetricEntry` to this so the builder stays snapshot-only).
+struct MetricReportInput {
+    let name: String
+    let unit: String?
+    /// Chronological values (oldest → newest) so `latest` is `values.last`.
+    let values: [Double]
+}
+
 enum ReportBuilder {
     static func build(
         medicines: [MedicineSnapshot],
         logs: [DoseLogSnapshot],
         range: ReportRange,
+        metricInputs: [MetricReportInput] = [],
         now: Date = .now,
         generatedAt: Date = .now,
         calendar: Calendar = .current
@@ -42,6 +52,15 @@ enum ReportBuilder {
             overallRatePercent: counted > 0 ? Int((Double(taken) / Double(counted) * 100).rounded()) : nil
         )
 
-        return ReportData(rangeStart: from, rangeEnd: to, generatedAt: generatedAt, lines: lines, summary: summary)
+        let metrics = metricInputs.map { input -> ReportData.MetricSummary in
+            let v = input.values
+            return ReportData.MetricSummary(
+                id: UUID(), name: input.name, unit: input.unit, count: v.count,
+                latest: v.last, average: v.isEmpty ? nil : v.reduce(0, +) / Double(v.count),
+                minimum: v.min(), maximum: v.max())
+        }
+
+        return ReportData(rangeStart: from, rangeEnd: to, generatedAt: generatedAt,
+                          lines: lines, summary: summary, metrics: metrics)
     }
 }

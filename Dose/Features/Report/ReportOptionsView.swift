@@ -7,6 +7,7 @@ import SwiftData
 struct ReportOptionsView: View {
     @Query(sort: \Medicine.name) private var medicines: [Medicine]   // filtered via `listed` (active + confirmed)
     @Query(sort: \DoseLog.scheduledFor) private var logs: [DoseLog]
+    @Query(sort: \TrackedMetric.sortOrder) private var trackedMetrics: [TrackedMetric]
 
     /// Medicine IDs to start checked (e.g. a single med from its detail). `nil` = select all.
     var preselected: Set<UUID>?
@@ -104,7 +105,15 @@ struct ReportOptionsView: View {
 
     private func generate() {
         let meds = listed.filter { selected.contains($0.id) }.map { $0.snapshot() }
-        let data = ReportBuilder.build(medicines: meds, logs: logs.map { $0.snapshot() }, range: range)
+        // Include every tracked metric with data in the range — a doctor report wants the whole picture.
+        let (from, to) = range.resolved()
+        let metricInputs = TrackedMetric.active(trackedMetrics).compactMap { metric -> MetricReportInput? in
+            let vals = metric.entries.filter { $0.loggedAt >= from && $0.loggedAt <= to }
+                .sorted { $0.loggedAt < $1.loggedAt }.compactMap(\.chartValue)
+            return vals.isEmpty ? nil : MetricReportInput(name: metric.name, unit: metric.unit, values: vals)
+        }
+        let data = ReportBuilder.build(medicines: meds, logs: logs.map { $0.snapshot() },
+                                       range: range, metricInputs: metricInputs)
         let pdf = ReportPDFRenderer.render(data)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Adherence Report.pdf")
         try? pdf.write(to: url)

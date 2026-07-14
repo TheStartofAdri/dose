@@ -84,6 +84,8 @@ struct WeekView: View {
                                    message: "Insights appear once you're tracking medicines or logging metrics.")
                         .doseCardStyle()
                 } else {
+                    let highlights = weeklyHighlights(meds: meds, logSnaps: logSnaps, now: now)
+                    if !highlights.isEmpty { highlightsCard(highlights) }
                     if !meds.isEmpty {
                         StreakBanner(streak: StreakCalculator.currentStreak(medicines: meds, logs: logSnaps, now: now))
                         adherenceCard(rate: rate)
@@ -115,6 +117,61 @@ struct WeekView: View {
         return metric.entries
             .filter { $0.chartValue != nil && $0.loggedAt >= cutoff }
             .sorted { $0.loggedAt < $1.loggedAt }
+    }
+
+    // MARK: - "What changed" highlights (last 7 days vs the prior 7 — independent of the week switcher)
+
+    private func weeklyHighlights(meds: [MedicineSnapshot], logSnaps: [DoseLogSnapshot], now: Date) -> [Highlight] {
+        let cal = Calendar.current
+        let last7 = AdherenceCalculator.days(medicines: meds, logs: logSnaps, now: now, days: 7)
+        let priorStart = cal.date(byAdding: .day, value: -13, to: cal.startOfDay(for: now)) ?? now
+        let priorEnd = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: now)) ?? now
+        let prior7 = AdherenceCalculator.days(medicines: meds, logs: logSnaps, from: priorStart, to: priorEnd, now: now)
+        let metricWeeklies = TrackedMetric.active(metrics).map { metricWeekly($0, now: now, cal: cal) }
+        return InsightsEngine.highlights(
+            currentStreak: StreakCalculator.currentStreak(medicines: meds, logs: logSnaps, now: now),
+            missedThisWeek: AdherenceCalculator.missedCount(last7),
+            missedLastWeek: AdherenceCalculator.missedCount(prior7),
+            adherenceThisWeek: AdherenceCalculator.rate(last7),
+            adherenceLastWeek: AdherenceCalculator.rate(prior7),
+            metrics: metricWeeklies)
+    }
+
+    private func metricWeekly(_ metric: TrackedMetric, now: Date, cal: Calendar) -> MetricWeekly {
+        let last7Start = cal.date(byAdding: .day, value: -6, to: cal.startOfDay(for: now)) ?? now
+        let priorStart = cal.date(byAdding: .day, value: -13, to: cal.startOfDay(for: now)) ?? now
+        let priorEnd = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: now)) ?? now
+        func avg(_ from: Date, _ to: Date) -> Double? {
+            let vals = metric.entries.filter { $0.loggedAt >= from && $0.loggedAt <= to }.compactMap(\.chartValue)
+            return vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count)
+        }
+        let daysLogged = Set(metric.entries.filter { $0.loggedAt >= last7Start }.map { cal.startOfDay(for: $0.loggedAt) }).count
+        return MetricWeekly(name: metric.name, unit: metric.unit, isSeverity: metric.valueKind == .severity,
+                            thisWeekAvg: avg(last7Start, now), lastWeekAvg: avg(priorStart, priorEnd),
+                            daysLoggedLast7: daysLogged)
+    }
+
+    private func highlightsCard(_ highlights: [Highlight]) -> some View {
+        VStack(alignment: .leading, spacing: DoseSpacing.sm) {
+            SectionHeader("What changed")
+            ForEach(highlights) { highlight in
+                HStack(spacing: 10) {
+                    Image(systemName: highlight.icon).foregroundStyle(tint(highlight.tone)).frame(width: 24)
+                    Text(highlight.title).font(.subheadline)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .doseCardStyle()
+    }
+
+    private func tint(_ tone: Highlight.Tone) -> Color {
+        switch tone {
+        case .positive: DoseColors.taken
+        case .attention: DoseColors.due
+        case .neutral: DoseColors.accent
+        }
     }
 
     // MARK: Sections
