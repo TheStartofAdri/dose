@@ -105,17 +105,39 @@ struct TodayView: View {
         Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
     }
 
+    /// The next-upcoming-appointment card — shown on every Today state (agenda, rest day, first run) so
+    /// appointment-first users always see it. Renders nothing when there's no upcoming appointment.
+    @ViewBuilder
+    private func appointmentCard(now: Date) -> some View {
+        if let nextAppt = Appointment.next(appointments, now: now) {
+            NextAppointmentCard(appointment: nextAppt, now: now) { showingAppointments = true }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+        }
+    }
+
     @ViewBuilder
     private func content(now: Date) -> some View {
         let doses = ExecutionEngine.todaysDoses(confirmedMedicines: medicines, logs: logs, now: now)
         if doses.isEmpty {
             if Medicine.activeConfirmed(medicines).isEmpty {
-                emptyState                       // genuinely no medicines yet
+                // Genuinely no medicines yet — but an appointment-first user may still have one to see,
+                // so surface the card above the empty state rather than a blank screen.
+                if Appointment.next(appointments, now: now) != nil {
+                    VStack(spacing: 0) {
+                        header(now: now)
+                        appointmentCard(now: now)
+                        emptyState
+                    }
+                } else {
+                    emptyState
+                }
             } else {
                 // Has active medicines, just none due today (specific weekdays / every-N-days / a
                 // finished course) — a rest day, NOT an empty app. Keep the date + streak header.
                 VStack(spacing: 0) {
                     header(now: now)
+                    appointmentCard(now: now)
                     restDayState
                 }
             }
@@ -138,11 +160,7 @@ struct TodayView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
                 }
-                if let nextAppt = Appointment.next(appointments, now: now) {
-                    NextAppointmentCard(appointment: nextAppt, now: now) { showingAppointments = true }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 12)
-                }
+                appointmentCard(now: now)
                 checkInsSection(now: now)
                 SectionHeader("Today's schedule")
                     .padding(.horizontal, 16)

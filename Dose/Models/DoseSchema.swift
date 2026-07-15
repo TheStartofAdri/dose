@@ -812,7 +812,7 @@ enum DoseSchemaV9: VersionedSchema {
 }
 
 // MARK: - Migration plan: every hop is purely additive with safe defaults / a new entity, so each
-// stage is lightweight. V1 → V2 → V3 → V4 → V5 → V6.
+// stage is lightweight. V1 → V2 → V3 → V4 → V5 → V6 → V7 → V8 → V9.
 
 enum DoseMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {

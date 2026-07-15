@@ -46,13 +46,13 @@ struct AddAppointmentSheet: View {
                 Section {
                     DatePicker("Date & time", selection: $startsAt)
                     Picker("Duration", selection: durationBinding) {
-                        ForEach(durationOptions, id: \.0) { Text($0.0).tag($0.1) }
+                        ForEach(durationOptionsResolved, id: \.0) { Text($0.0).tag($0.1) }
                     }
                 }
 
                 Section {
                     Picker("Remind me", selection: reminderBinding) {
-                        ForEach(reminderOptions, id: \.0) { Text($0.0).tag($0.1) }
+                        ForEach(reminderOptionsResolved, id: \.0) { Text($0.0).tag($0.1) }
                     }
                 } footer: {
                     Text("A reminder is a memory aid for your visit. Dose doesn't provide medical advice.")
@@ -77,20 +77,36 @@ struct AddAppointmentSheet: View {
         }
     }
 
-    private var canSave: Bool { !title.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var canSave: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     // Picker tags are optionals; these bindings keep the `Int?` selection type explicit.
     private var durationBinding: Binding<Int?> { Binding(get: { durationMinutes }, set: { durationMinutes = $0 }) }
     private var reminderBinding: Binding<Int?> { Binding(get: { reminderLead }, set: { reminderLead = $0 }) }
 
-    /// The next round half-hour from now, as a sensible default start time.
+    // A prefilled value not in the preset list would leave the Picker blank — append a labelled row for
+    // it so the selection always renders (defensive; in-app all values come from the lists above).
+    private var durationOptionsResolved: [(String, Int?)] {
+        guard let d = durationMinutes, !durationOptions.contains(where: { $0.1 == d }) else { return durationOptions }
+        return durationOptions + [("\(d) min", d)]
+    }
+    private var reminderOptionsResolved: [(String, Int?)] {
+        guard let r = reminderLead, !reminderOptions.contains(where: { $0.1 == r }) else { return reminderOptions }
+        return reminderOptions + [("\(r) min before", r)]
+    }
+
+    /// The next round half-hour from now (seconds zeroed), as a sensible default start time.
     private static func defaultStart() -> Date {
         let cal = Calendar.current
-        let base = cal.date(byAdding: .hour, value: 1, to: .now) ?? .now
-        let minute = cal.component(.minute, from: base)
-        let rounded = cal.date(bySetting: .minute, value: minute < 30 ? 30 : 0, of: base) ?? base
-        // If we rounded 30→00 it may have stayed in the same hour; nudge to the next hour when needed.
-        return rounded > .now ? rounded : cal.date(byAdding: .minute, value: 30, to: rounded) ?? rounded
+        let now = Date()
+        var comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: now)
+        comps.second = 0
+        if (comps.minute ?? 0) < 30 {
+            comps.minute = 30
+        } else {
+            comps.minute = 0
+            comps.hour = (comps.hour ?? 0) + 1   // Calendar normalizes hour 24 → next day 00:00
+        }
+        return cal.date(from: comps) ?? now.addingTimeInterval(1800)
     }
 
     private func prefill() {
