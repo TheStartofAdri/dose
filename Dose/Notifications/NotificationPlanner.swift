@@ -83,6 +83,12 @@ enum NotificationPlanner {
         var escSeen = Set<String>();    var escalations: [WindowedReminder] = []
         var leadSeen = Set<String>();   var leadtime: [WindowedReminder] = []
 
+        // Index logs by medicineID ONCE, so the per-occurrence resolution check + the per-medicine refill
+        // filter scan only that medicine's logs instead of the whole table. Behavior-identical (both were
+        // already filtering by medicineID); turns the hot O(occurrences × allLogs) into O(allLogs) index +
+        // O(occurrences × logsForThatMed). `plan` runs on every foreground and every non-dose write.
+        let logsByMed = Dictionary(grouping: logs, by: { $0.medicineID })
+
         var hasBeyondWindow = false
         for medicine in medicines {
             // A finite course caps its window at the inclusive end day; an ongoing med uses the full
@@ -101,7 +107,7 @@ enum NotificationPlanner {
                     // prevents the on-time "Time for X" from firing for an already-recorded dose, and a
                     // foreground/background refill from resurrecting it. (The take itself also cancels
                     // the pending one-shot immediately; this stops it ever coming back.)
-                    guard !isResolved(medicine.id, occ, logs) else { continue }
+                    guard !isResolved(occ, in: logsByMed[medicine.id] ?? []) else { continue }
 
                     let onID = onTimeID(medicine.id, occ)
                     if onTimeSeen.insert(onID).inserted {
@@ -199,7 +205,7 @@ enum NotificationPlanner {
 
         // Refill "running low" reminders are the LOWEST priority — they must never displace a dose
         // reminder, so they take only leftover budget.
-        let refills = refillReminders(medicines: medicines, logs: logs, now: now, window: window, calendar: calendar)
+        let refills = refillReminders(medicines: medicines, logsByMed: logsByMed, now: now, window: window, calendar: calendar)
         let chosenRefills = remaining > 0
             ? Array(refills.sorted { $0.fireDate < $1.fireDate }.prefix(remaining))
             : []
@@ -212,14 +218,14 @@ enum NotificationPlanner {
     /// One "running low — refill soon" reminder per stock-tracking medicine whose projected run-out
     /// crosses its threshold within the horizon. Fires at 10:00 on the crossing day (or the next morning
     /// if that's already past), so it's stable across reschedules. Pure; uses `RefillCalculator`.
-    private static func refillReminders(medicines: [MedicineSnapshot], logs: [DoseLogSnapshot],
+    private static func refillReminders(medicines: [MedicineSnapshot], logsByMed: [UUID: [DoseLogSnapshot]],
                                         now: Date, window: TimeInterval, calendar: Calendar) -> [WindowedReminder] {
         let windowDays = max(1, Int(window / 86_400))
         var out: [WindowedReminder] = []
         for medicine in medicines {
             guard let threshold = medicine.refillThresholdDays, medicine.unitsAtRefill != nil,
                   !medicine.rules.isEmpty else { continue }
-            let medLogs = logs.filter { $0.medicineID == medicine.id }
+            let medLogs = logsByMed[medicine.id] ?? []
             let remaining = RefillCalculator.unitsRemaining(unitsAtRefill: medicine.unitsAtRefill,
                                                             refillDate: medicine.refillDate,
                                                             unitsPerDose: medicine.unitsPerDose, logs: medLogs)
@@ -284,9 +290,9 @@ enum NotificationPlanner {
     // MARK: - Helpers
 
     /// True when this occurrence already has a `.taken`/`.skipped` log (so it must not be scheduled).
-    private static func isResolved(_ medicineID: UUID, _ occ: Date, _ logs: [DoseLogSnapshot]) -> Bool {
-        for entry in logs {
-            guard entry.medicineID == medicineID else { continue }
+    /// `medLogs` is the pre-indexed subset for one medicine (see `logsByMed` in `plan`).
+    private static func isResolved(_ occ: Date, in medLogs: [DoseLogSnapshot]) -> Bool {
+        for entry in medLogs {
             guard entry.action == .taken || entry.action == .skipped else { continue }
             if ExecutionEngine.sameSlot(entry.scheduledFor, occ) { return true }
         }
