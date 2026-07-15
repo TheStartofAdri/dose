@@ -195,6 +195,7 @@ private struct HistoryEventRow: View {
                 .font(.title3)
                 .foregroundStyle(DoseTheme.color(for: event.status))
                 .frame(width: 28)
+                .accessibilityHidden(true)   // status is already stated in the subtitle text
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
