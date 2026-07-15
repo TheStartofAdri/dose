@@ -49,6 +49,12 @@ final class Medicine {
     /// Remind to refill when the projected days-of-supply falls to/below this. nil = no refill reminder.
     var refillThresholdDays: Int?
 
+    // New in v10 — optional/defaulted → lightweight. When the dose-time RULES were last edited. Adherence
+    // and streak reconstruct PAST expected slots from the CURRENT rules; without this, editing a schedule
+    // injects phantom misses on past days (and breaks the streak). Days before this instant are scored
+    // from the actual take/skip logs only — no miss reconstruction. nil = never edited (score all history).
+    var scheduleChangedAt: Date?
+
     /// Recurring rules only — each `DoseTime` carries no status. Cascade-deleted with the medicine.
     @Relationship(deleteRule: .cascade, inverse: \DoseTime.medicine)
     var doseTimes: [DoseTime]
@@ -91,6 +97,7 @@ final class Medicine {
         refillDate: Date? = nil,
         unitsPerDose: Int = 1,
         refillThresholdDays: Int? = nil,
+        scheduleChangedAt: Date? = nil,
         doseTimes: [DoseTime] = []
     ) {
         self.id = id
@@ -110,6 +117,7 @@ final class Medicine {
         self.refillDate = refillDate
         self.unitsPerDose = unitsPerDose
         self.refillThresholdDays = refillThresholdDays
+        self.scheduleChangedAt = scheduleChangedAt
         self.doseTimes = doseTimes
     }
 }

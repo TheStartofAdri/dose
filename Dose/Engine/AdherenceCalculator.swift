@@ -107,9 +107,13 @@ enum AdherenceCalculator {
                 case .snoozed, nil:
                     // Missed once past the cutoff — the slot time, or the snooze-until while a snooze is
                     // still pending, so an in-window snooze is neither taken nor missed (matches Today).
-                    if now > missedCutoff(slot: slot, latest: latest) && ExecutionEngine.isWithinLifetime(
-                        scheduledFor: slot, createdAt: medicine.createdAt,
-                        endDate: medicine.endDate, calendar: calendar) {
+                    // A reconstructed miss is ALSO suppressed for slots BEFORE the schedule was last
+                    // edited: the old rules are unknown, so pre-edit days are scored from real take/skip
+                    // logs only (via the orphan pass) — otherwise editing the times injects phantom misses.
+                    if now > missedCutoff(slot: slot, latest: latest)
+                        && ExecutionEngine.isWithinLifetime(scheduledFor: slot, createdAt: medicine.createdAt,
+                                                            endDate: medicine.endDate, calendar: calendar)
+                        && (medicine.scheduleChangedAt.map { slot >= $0 } ?? true) {
                         missed += 1                                // unfulfilled in-lifetime slot
                     }
                     // else: upcoming, still-snoozed, or outside the med's lifetime → not counted

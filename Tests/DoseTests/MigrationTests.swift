@@ -364,4 +364,41 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(appt.providerName, "Dr. Smith")
         XCTAssertEqual(appt.startsAt, starts, "appointment persists after migration")
     }
+
+    /// v10 migration: a store at V9 (before `Medicine.scheduleChangedAt`) must upgrade to V10 lightweight
+    /// — meds/appointments preserved, the new field defaults to nil, and it round-trips once set.
+    func testUpgradeFromV9StoreDefaultsScheduleChangedAt() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dose-migrate-v9-\(UUID().uuidString).store")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+
+        let medID = UUID()
+        do {
+            let v9Schema = Schema(versionedSchema: DoseSchemaV9.self)
+            let v9 = try ModelContainer(for: v9Schema, configurations: [ModelConfiguration(schema: v9Schema, url: url)])
+            let ctx = ModelContext(v9)
+            let med = DoseSchemaV9.Medicine(id: medID, name: "Amoxicillin", dosage: "500 mg", form: "capsule",
+                                            trustStateRaw: "confirmed", isActive: true, createdAt: .now)
+            med.doseTimes = [DoseSchemaV9.DoseTime(hour: 9, minute: 0, weekdays: [2, 4, 6])]
+            ctx.insert(med)
+            ctx.insert(DoseSchemaV9.Appointment(title: "Follow-up", startsAt: Date(timeIntervalSince1970: 1_800_000_000)))
+            try ctx.save()
+        }
+
+        let current = try ModelContainer(for: DoseStore.currentSchema, migrationPlan: DoseMigrationPlan.self,
+                                         configurations: [ModelConfiguration(schema: DoseStore.currentSchema, url: url)])
+        let ctx = ModelContext(current)
+
+        let med = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Medicine>()).first)
+        XCTAssertEqual(med.id, medID)
+        XCTAssertEqual(med.doseTimes.first?.weekdays, [2, 4, 6], "schedule preserved")
+        XCTAssertNil(med.scheduleChangedAt, "v10 scheduleChangedAt defaults to nil — additive/lightweight")
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Appointment>()).count, 1, "appointment preserved")
+
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        med.scheduleChangedAt = stamp
+        try ctx.save()
+        XCTAssertEqual(try XCTUnwrap(try ctx.fetch(FetchDescriptor<Medicine>()).first).scheduleChangedAt, stamp,
+                       "scheduleChangedAt persists once set")
+    }
 }

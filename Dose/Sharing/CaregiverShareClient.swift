@@ -40,13 +40,23 @@ struct CaregiverShareClient {
     var anonKey: String? = AppConfig.supabaseAnonKey
     static let requestTimeout: TimeInterval = 30
 
+    struct ErrorBody: Decodable { let error: String }   // internal so the mapper is unit-testable
+
     /// Pure status→error mapping, extracted so it's unit-testable without a live transport (mirrors
-    /// `RemoteMedicationParser.error(forStatus:)`). `nil` for a 200 → proceed to decode.
-    static func error(forStatus status: Int) -> CaregiverShareError? {
+    /// `RemoteMedicationParser.error(forStatus:body:)`). `nil` for a 200 → proceed. Only an explicit
+    /// `server_misconfigured` 500 is `.notConfigured`; any OTHER 500 (a gateway/unhandled fault) is a
+    /// TRANSIENT `.server(500)` — otherwise a blip would tell the user "sharing isn't set up yet."
+    static func error(forStatus status: Int, body: Data = Data()) -> CaregiverShareError? {
         switch status {
-        case 200: return nil
-        case 500: return .notConfigured        // server_misconfigured (service role / URL missing)
-        default:  return .server(status)
+        case 200:
+            return nil
+        case 500:
+            if let b = try? JSONDecoder().decode(ErrorBody.self, from: body), b.error == "server_misconfigured" {
+                return .notConfigured
+            }
+            return .server(500)
+        default:
+            return .server(status)
         }
     }
 
@@ -66,7 +76,7 @@ struct CaregiverShareClient {
         request.httpBody = body
 
         let (data, http) = try await sendMapping(request)
-        if let mapped = Self.error(forStatus: http.statusCode) { throw mapped }
+        if let mapped = Self.error(forStatus: http.statusCode, body: data) { throw mapped }
         let dec = JSONDecoder(); dec.dateDecodingStrategy = Self.flexibleISO8601
         guard let result = try? dec.decode(CaregiverShareResult.self, from: data) else {
             throw CaregiverShareError.decoding
@@ -105,8 +115,8 @@ struct CaregiverShareClient {
         request.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
 
-        let (_, http) = try await sendMapping(request)
-        if let mapped = Self.error(forStatus: http.statusCode) { throw mapped }
+        let (data, http) = try await sendMapping(request)
+        if let mapped = Self.error(forStatus: http.statusCode, body: data) { throw mapped }
     }
 
     private func sendMapping(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {

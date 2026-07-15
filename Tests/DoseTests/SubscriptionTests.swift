@@ -24,10 +24,13 @@ final class SubscriptionTests: XCTestCase {
         XCTAssertTrue(SubscriptionStore.isEntitled([EntitlementSnapshot(expiration: nil, isRevoked: false)]))
     }
 
-    func testExpiredIsNotEntitled() {
+    func testGracePeriodIsEntitled() {
+        // `refresh()` sources snapshots ONLY from `Transaction.currentEntitlements`, so a non-revoked
+        // entry with a PAST expiration is a billing-grace period (access continues) — it must stay premium.
+        // A truly lapsed subscription isn't in currentEntitlements, so it never reaches this function.
         let past = Date(timeIntervalSinceNow: -86_400)
-        XCTAssertFalse(SubscriptionStore.isEntitled([EntitlementSnapshot(expiration: past, isRevoked: false)]),
-                       "a lapsed subscription is not premium")
+        XCTAssertTrue(SubscriptionStore.isEntitled([EntitlementSnapshot(expiration: past, isRevoked: false)]),
+                      "a billing-grace entitlement (past expiration, still delivered) is premium — not dropped")
     }
 
     func testRevokedIsNotEntitled() {

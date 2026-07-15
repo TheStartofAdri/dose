@@ -245,6 +245,13 @@ struct SettingsView: View {
         try? context.delete(model: Appointment.self)
         try? context.save()
         NotificationScheduler.shared.reschedule(medicines: [], logs: [], appointments: [], escalationEnabled: escalationEnabled)
+        // The delete right must reach the OFF-DEVICE copy too: revoke any caregiver share on the server
+        // and clear the local token, so a deleted user's summary stops being served (not left until its
+        // 7-day TTL). Best-effort — a network failure still clears locally.
+        if let share = CaregiverShareStore.current {
+            Task { try? await CaregiverShareClient().revoke(token: share.token) }
+            CaregiverShareStore.clear()
+        }
         Haptics.light()
     }
 

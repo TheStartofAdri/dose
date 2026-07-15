@@ -39,8 +39,9 @@ final class HealthKitService {
         var imported = 0
         for metric in metrics {
             guard let hk = HealthMetricType.forMetricName(metric.name), let qt = hk.quantityType else { continue }
+            let existing = metric.entries.map { ($0.loggedAt, $0.source) }
             for sample in await samples(of: qt, from: start, to: now) {
-                if metric.entries.contains(where: { abs($0.loggedAt.timeIntervalSince(sample.startDate)) < 1 }) { continue }
+                guard Self.shouldImport(sampleStart: sample.startDate, existing: existing) else { continue }
                 let value = hk.appValue(fromHKValue: sample.quantity.doubleValue(for: hk.hkUnit))
                 context.insert(MetricEntry(value: value, loggedAt: sample.startDate, source: .healthKit, metric: metric))
                 imported += 1
@@ -50,11 +51,25 @@ final class HealthKitService {
         return imported
     }
 
+    /// Whether a HealthKit sample at `sampleStart` should be imported. De-dup is scoped to EXISTING
+    /// HealthKit-sourced entries only (within 1s), so a manual entry never suppresses a real HK sample
+    /// (and vice-versa) and a re-import stays idempotent. Pure + unit-testable.
+    static func shouldImport(sampleStart: Date, existing: [(loggedAt: Date, source: MetricSource)]) -> Bool {
+        !existing.contains { $0.source == .healthKit && abs($0.loggedAt.timeIntervalSince(sampleStart)) < 1 }
+    }
+
     private func samples(of type: HKQuantityType, from: Date, to: Date) async -> [HKQuantitySample] {
         await withCheckedContinuation { continuation in
-            let predicate = HKQuery.predicateForSamples(withStart: from, end: to)
+            // Exclude the app's OWN write-backs so a manually-logged vital we saved to Health isn't
+            // re-imported as a duplicate HK entry.
+            let inRange = HKQuery.predicateForSamples(withStart: from, end: to)
+            let notOurs = NSCompoundPredicate(notPredicateWithSubpredicate:
+                HKQuery.predicateForObjects(from: HKSource.default()))
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [inRange, notOurs])
+            // DESCENDING + limit 100 → keep the 100 MOST RECENT samples (ascending previously kept the
+            // oldest 100, dropping recent data — the opposite of "importRecent").
             let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: 100,
-                                      sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]) { _, results, _ in
+                                      sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)]) { _, results, _ in
                 continuation.resume(returning: (results as? [HKQuantitySample]) ?? [])
             }
             store.execute(query)

@@ -56,6 +56,10 @@ enum StreakCalculator {
                 // its course's inclusive end day (post-end days stay neutral, never breaking the streak).
                 guard ExecutionEngine.isWithinLifetime(scheduledFor: date, createdAt: medicine.createdAt,
                                                        endDate: medicine.endDate, calendar: calendar) else { continue }
+                // Don't reconstruct slots before the schedule was last edited — the old rules are unknown,
+                // so a pre-edit slot must not be counted a miss (which would break the streak on a day the
+                // user may have taken correctly under the old schedule). Pre-edit days pass through neutral.
+                guard medicine.scheduleChangedAt.map({ date >= $0 }) ?? true else { continue }
                 slots.append((medicine.id, date))
             }
         }
