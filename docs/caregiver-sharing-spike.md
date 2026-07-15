@@ -86,9 +86,14 @@ This is 100% offline: it proves *what* would be shared without sending anything 
 - The Supabase project has been prone to pausing (INACTIVE) — a shared-link backend needs reliability.
 
 ## 9. Phase 1 status (Option A — signed read-only link)
-**Built (not yet deployed / not yet live):**
-- Backend: `supabase/functions/caregiver-share` (POST create / GET read-only HTML view / DELETE revoke),
+**Deployed to the MedEase Supabase project; create/revoke/expiry verified live.**
+- Backend: `supabase/functions/caregiver-share` (POST create / GET **JSON** / DELETE revoke),
   `caregiver_shares` table with RLS deny-all + optional pg_cron purge, `verify_jwt = false` (token-gated).
+- **Viewer host — learned at deploy time:** Supabase force-serves EVERY `*.supabase.co` response as
+  `text/plain` under a `sandbox` CSP (anti-phishing), across Functions AND Storage — so a renderable
+  caregiver page cannot be hosted on Supabase at all. The viewer is therefore a **static page on GitHub
+  Pages** (`docs/caregiver/index.html`, served at `…github.io/dose/caregiver/`) that fetches the function's
+  GET (JSON, CORS `*` — data is minimized + token-gated) and renders it client-side (textContent, no XSS).
 - App: `CaregiverShareClient` (create/revoke, tested via a stub transport), `CaregiverShareStore` (the one
   active share, expiry-aware), and the **premium-gated, consent-first `CaregiverShareView`** in Settings.
 - The share payload is built from live data with **HealthKit-sourced values excluded** (Phase 0 builder).
