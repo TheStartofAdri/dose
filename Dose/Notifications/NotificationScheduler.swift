@@ -77,7 +77,10 @@ final class NotificationScheduler {
     /// Rebuilds the entire schedule from the current confirmed medicines and their logs. `logs` lets the
     /// planner skip doses already taken/skipped, so a refill never resurrects a reminder for a recorded
     /// dose. On-time reminders are submitted first (their slots get first claim on the 64-cap).
-    func reschedule(medicines: [Medicine], logs: [DoseLog], appointments: [Appointment] = [],
+    // `appointments` is REQUIRED (no default): every reschedule wipes all pending requests and rebuilds,
+    // so a caller that omitted appointments would silently delete their reminders. Forcing the argument
+    // makes that impossible at compile time (the cold-launch `.task` regression that omitted it).
+    func reschedule(medicines: [Medicine], logs: [DoseLog], appointments: [Appointment],
                     escalationEnabled: Bool, now: Date = .now) {
         let snapshots = Medicine.activeConfirmed(medicines).map { $0.snapshot() }
         // Appointment reminders are planned first and their (bounded) count is RESERVED out of the dose
