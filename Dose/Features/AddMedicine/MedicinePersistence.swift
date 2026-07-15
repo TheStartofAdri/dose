@@ -25,10 +25,15 @@ enum MedicineWriter {
 
     /// Apply an edit to an existing medicine, replacing its dose-time rules.
     static func saveEdit(_ medicine: Medicine, draft: EditableDraft, context: ModelContext, escalationEnabled: Bool) {
+        let oldRules = Set(medicine.snapshot().rules)
         for old in medicine.doseTimes { context.delete(old) }
         let doseTimes = draft.doseTimes()
         draft.apply(to: medicine, newDoseTimes: doseTimes)
         for doseTime in doseTimes { context.insert(doseTime) }
+        // Stamp only when the dose-time RULES actually changed (not a name-only edit), so adherence/streak
+        // stop reconstructing past misses from the NEW schedule — a schedule change otherwise injects
+        // phantom misses on past days and breaks the streak.
+        if Set(medicine.snapshot().rules) != oldRules { medicine.scheduleChangedAt = .now }
         persist(context: context, escalationEnabled: escalationEnabled)
     }
 

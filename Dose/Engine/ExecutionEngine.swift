@@ -74,11 +74,15 @@ struct MedicineSnapshot: Sendable, Hashable, Identifiable {
     let refillDate: Date?
     let unitsPerDose: Int
     let refillThresholdDays: Int?
+    /// When the dose-time rules were last edited (v10). Adherence/streak reconstruct PAST expected slots
+    /// from `rules`; a reconstructed MISS before this instant is suppressed (the old schedule is unknown),
+    /// so a schedule edit can't inject phantom misses / break the streak. `nil` = never edited.
+    let scheduleChangedAt: Date?
 
     init(id: UUID, name: String, dosage: String?, rules: [DoseSlotRule],
          createdAt: Date = .distantPast, endDate: Date? = nil, leadTimeMinutes: Int? = nil,
          unitsAtRefill: Int? = nil, refillDate: Date? = nil, unitsPerDose: Int = 1,
-         refillThresholdDays: Int? = nil) {
+         refillThresholdDays: Int? = nil, scheduleChangedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.dosage = dosage
@@ -90,6 +94,7 @@ struct MedicineSnapshot: Sendable, Hashable, Identifiable {
         self.refillDate = refillDate
         self.unitsPerDose = unitsPerDose
         self.refillThresholdDays = refillThresholdDays
+        self.scheduleChangedAt = scheduleChangedAt
     }
 }
 
@@ -320,7 +325,8 @@ extension Medicine {
             unitsAtRefill: unitsAtRefill,
             refillDate: refillDate,
             unitsPerDose: unitsPerDose,
-            refillThresholdDays: refillThresholdDays
+            refillThresholdDays: refillThresholdDays,
+            scheduleChangedAt: scheduleChangedAt
         )
     }
 }
