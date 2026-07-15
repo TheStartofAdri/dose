@@ -64,4 +64,25 @@ final class AppointmentSchedulerTests: XCTestCase {
         XCTAssertTrue(ids.contains(AppointmentReminderPlanner.id(appt.id)), "appointment reminder present")
         XCTAssertTrue(ids.contains { $0.hasPrefix("ontime.") }, "dose reminders present alongside")
     }
+
+    /// The digest is one MORE pending request beyond the dose planner + appointment reservation. With a
+    /// saturating schedule (far more dose occurrences than the cap) plus an appointment, the total must
+    /// still be ≤ 64. Fail-before: `doseBudget = 64 − apptCount` left the digest uncounted → 65 submitted.
+    func testTotalPendingNeverExceeds64WithAppointmentAndDigest() throws {
+        let ctx = try makeContext()
+        let now = Calendar.current.date(bySettingHour: 0, minute: 0, second: 0, of: Date())!
+        let med = Medicine(name: "Many", trustState: .confirmed, isActive: true)
+        med.doseTimes = (0..<12).map { DoseTime(hour: $0, minute: 0) }   // 12/day × 7d = ~84 occurrences ≫ 64
+        ctx.insert(med)
+        let appt = Appointment(title: "Visit", startsAt: now.addingTimeInterval(48 * 3600), reminderLeadMinutes: 1440)
+        ctx.insert(appt); try ctx.save()
+        let ids = capture {
+            NotificationScheduler.shared.reschedule(medicines: [med], logs: [], appointments: [appt],
+                                                    escalationEnabled: false, now: now)
+        }
+        XCTAssertLessThanOrEqual(Set(ids).count, NotificationPlanner.maxPending,
+                                 "doses + appointment + digest (+sentinel) never exceed the 64-pending cap")
+        XCTAssertTrue(ids.contains(AppointmentReminderPlanner.id(appt.id)), "appointment reminder still armed")
+        XCTAssertTrue(ids.contains(NotificationScheduler.weeklyDigestID), "digest still armed")
+    }
 }

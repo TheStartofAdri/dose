@@ -87,7 +87,11 @@ final class NotificationScheduler {
         // budget, so doses + appointments together can never exceed the 64-slot iOS cap. Appointments
         // never displace the soonest doses beyond this reserve.
         let apptReminders = AppointmentReminderPlanner.reminders(appointments.map { $0.snapshot() }, now: now)
-        let doseBudget = max(0, NotificationPlanner.maxPending - apptReminders.count)
+        // The weekly digest (added below when there's data) is one MORE pending request outside the dose
+        // planner — reserve its slot too, or a saturated schedule would total 65 and iOS silently drops
+        // one at >64. `hasData` mirrors `addWeeklyDigest(hasData:)`.
+        let hasData = !snapshots.isEmpty
+        let doseBudget = max(0, NotificationPlanner.maxPending - apptReminders.count - (hasData ? 1 : 0))
         let plan = NotificationPlanner.plan(medicines: snapshots, logs: logs.map { $0.snapshot() },
                                             now: now, escalationEnabled: escalationEnabled, budget: doseBudget)
         // Surface the 64-pending cap: if the plan had to drop reminders, the UI shows a notice.
@@ -101,7 +105,7 @@ final class NotificationScheduler {
         for reminder in plan.refills { addMedicationRefill(reminder, now: now) }
         if let fire = plan.sentinelFireDate { addRefillSentinel(fire: fire, now: now) }
         for reminder in apptReminders { addAppointmentReminder(reminder, now: now) }
-        addWeeklyDigest(hasData: !snapshots.isEmpty)
+        addWeeklyDigest(hasData: hasData)
     }
 
     /// The coverage-end sentinel: a plain notification — no dose category (no Take/Skip buttons) and
