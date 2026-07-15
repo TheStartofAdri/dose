@@ -25,7 +25,11 @@ final class CaregiverShareClientTests: XCTestCase {
 
     func testStatusErrorMapping() {
         XCTAssertNil(CaregiverShareClient.error(forStatus: 200))
-        XCTAssertEqual(CaregiverShareClient.error(forStatus: 500), .notConfigured)
+        // A bare 500 (gateway/unhandled fault) is TRANSIENT — NOT "not configured" (which would show the
+        // user "sharing isn't set up yet" for a passing blip). Only an explicit server_misconfigured is.
+        XCTAssertEqual(CaregiverShareClient.error(forStatus: 500), .server(500))
+        XCTAssertEqual(CaregiverShareClient.error(forStatus: 500, body: Data(#"{"error":"server_misconfigured"}"#.utf8)),
+                       .notConfigured)
         XCTAssertEqual(CaregiverShareClient.error(forStatus: 429), .server(429))
     }
 

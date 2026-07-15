@@ -58,17 +58,15 @@ final class SubscriptionStore: ObservableObject {
 
     private init() {}
 
-    /// Pure, unit-testable decision: premium iff any non-revoked entitlement is unexpired (a trial is just
-    /// an active entitlement whose `expiration` is the trial end).
-    ///
-    /// KNOWN CONSIDERATION (B3, verify against real StoreKit before changing): `refresh()` builds these
-    /// snapshots from `Transaction.currentEntitlements`, which StoreKit already limits to *currently
-    /// valid* entitlements — including ones in a **billing grace period**, whose `expirationDate` is in
-    /// the past yet the customer is still entitled. The extra `expiration > now` check here can therefore
-    /// UNDER-grant during grace. The safe fix (trust `currentEntitlements` membership, or consult the
-    /// renewal state) needs a sandbox/device grace-period test first — do not change this blind.
-    static func isEntitled(_ entitlements: [EntitlementSnapshot], now: Date = .now) -> Bool {
-        entitlements.contains { !$0.isRevoked && ($0.expiration == nil || $0.expiration! > now) }
+    /// Pure, unit-testable decision: premium iff any non-revoked entitlement is present. `refresh()` builds
+    /// these snapshots ONLY from `Transaction.currentEntitlements`, which StoreKit already limits to
+    /// entitlements the user is CURRENTLY entitled to — crucially INCLUDING a **billing-grace period**
+    /// (whose `expirationDate` is already in the past yet access continues). So membership is the signal;
+    /// an extra `expiration > now` check would wrongly DROP a paying customer during grace (B3, a revenue
+    /// bug — it re-checks on every foreground). A truly lapsed subscription is not in `currentEntitlements`
+    /// at all, so it's excluded upstream, not here. (Still worth a sandbox grace-period pass on device.)
+    static func isEntitled(_ entitlements: [EntitlementSnapshot]) -> Bool {
+        entitlements.contains { !$0.isRevoked }
     }
 
     /// Idempotently start the updates listener, load products, and run the initial entitlement check.
