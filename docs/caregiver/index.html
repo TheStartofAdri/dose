@@ -26,7 +26,7 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 <script>
 // The read-only caregiver viewer. Fetches a minimized snapshot from the caregiver-share function by the
 // token in the URL and renders it. All values go in via textContent (never innerHTML) → no injection.
-var FN = "https://xfyonvkcppjzcyqgjoau.supabase.co/functions/v1/caregiver-share";
+var FN = "https://xfyonvkcppjzcyqgjoau.supabase.co/functions/v1/caregiver-share-view";
 var token = new URLSearchParams(location.search).get("t");
 var root = document.getElementById("root");
 
@@ -37,8 +37,12 @@ function el(tag, cls, text) {
   return e;
 }
 function fmt(iso) {
-  try { return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
-  catch (_) { return String(iso); }
+  var d = new Date(iso);
+  // new Date(undefined/garbage) is an Invalid Date whose toLocaleString() returns "Invalid Date"
+  // (no throw), so guard explicitly rather than rely on catch.
+  if (isNaN(d.getTime())) return "—";
+  try { return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
+  catch (_) { return "—"; }
 }
 function message(title, sub) {
   root.innerHTML = "";
@@ -59,7 +63,7 @@ function render(s) {
   root.append(el("h1", null, who));
   root.append(el("p", "sub", "Read-only, shared from Dose" + (s.generatedAt ? " · updated " + fmt(s.generatedAt) : "")));
 
-  var a = card("Adherence · last " + (s.rangeDays || 30) + " days");
+  var a = card("Adherence · last " + (s.rangeDays != null ? s.rangeDays : 30) + " days");
   a.append(el("div", "big", s.overallAdherencePercent == null ? "—" : s.overallAdherencePercent + "%"));
   a.append(el("div", "sub", "overall doses taken on time"));
   (s.medicines || []).forEach(function (m) {
@@ -71,7 +75,7 @@ function render(s) {
   if ((s.upcomingAppointments || []).length) {
     var c = card("Upcoming appointments");
     s.upcomingAppointments.forEach(function (x) {
-      c.append(row(x.title + (x.subtitle ? " · " + x.subtitle : ""), fmt(x.when)));
+      c.append(row((x.title || "Appointment") + (x.subtitle ? " · " + x.subtitle : ""), fmt(x.when)));
     });
     root.append(c);
   }

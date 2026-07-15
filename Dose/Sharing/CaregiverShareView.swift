@@ -14,6 +14,7 @@ struct CaregiverShareView: View {
     @State private var active = CaregiverShareStore.active()
     @State private var showConsent = false
     @State private var working = false
+    @State private var copied = false
     @State private var errorMessage: String?
     @State private var shareItem: ShareableFile?
 
@@ -46,7 +47,23 @@ struct CaregiverShareView: View {
             .alert("Couldn't do that", isPresented: errorBinding) {
                 Button("OK", role: .cancel) {}
             } message: { Text(errorMessage ?? "Please try again.") }
-            .overlay { if working { ProgressView().controlSize(.large) } }
+            // A full-bleed, hit-testing dimmed scrim so the form can't be tapped mid-request (a
+            // half-completed create/revoke otherwise stays interactive). Announces itself to VoiceOver.
+            .overlay {
+                if working {
+                    ZStack {
+                        Color.black.opacity(0.12).ignoresSafeArea()
+                        ProgressView()
+                            .controlSize(.large)
+                            .padding(24)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .accessibilityElement()
+                    .accessibilityLabel("Working…")
+                }
+            }
+            // Re-read the active share each time the sheet appears (it may have expired since last open).
+            .onAppear { active = CaregiverShareStore.active() }
         }
     }
 
@@ -80,11 +97,19 @@ struct CaregiverShareView: View {
             Button {
                 shareItem = ShareableFile(url: share.viewUrl)
             } label: { Label("Send link", systemImage: "square.and.arrow.up") }
+            .disabled(working)
 
             Button {
                 UIPasteboard.general.url = share.viewUrl
                 Haptics.light()
-            } label: { Label("Copy link", systemImage: "doc.on.doc") }
+                copied = true
+                Task { try? await Task.sleep(for: .seconds(2)); copied = false }
+            } label: {
+                Label(copied ? "Copied" : "Copy link", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .foregroundStyle(copied ? DoseColors.taken : DoseColors.accent)
+            }
+            .disabled(working)
+            .animation(.default, value: copied)
 
             Button(role: .destructive) {
                 Task { await revoke(share) }

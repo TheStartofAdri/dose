@@ -26,11 +26,14 @@ struct AppointmentsView: View {
                         Spacer()
                     }
                 } else {
-                    List {
-                        TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                            let now = timeline.date
-                            let upcoming = Appointment.upcoming(appointments, now: now)
-                            let past = Appointment.past(appointments, now: now)
+                    // TimelineView drives `now` (so relative times refresh) but wraps the List — the
+                    // ForEach + `.onDelete` stay DIRECT List-section children, so swipe-to-delete and
+                    // grouped section headers render natively (nesting them under TimelineView broke that).
+                    TimelineView(.periodic(from: .now, by: 60)) { timeline in
+                        let now = timeline.date
+                        let upcoming = Appointment.upcoming(appointments, now: now)
+                        let past = Appointment.past(appointments, now: now)
+                        List {
                             Section("Upcoming") {
                                 if upcoming.isEmpty {
                                     Text("Nothing scheduled").foregroundStyle(.secondary)
@@ -46,8 +49,8 @@ struct AppointmentsView: View {
                                 }
                             }
                         }
+                        .listStyle(.insetGrouped)
                     }
-                    .listStyle(.insetGrouped)
                 }
             }
             .navigationTitle("Appointments")
@@ -86,6 +89,9 @@ struct AppointmentsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(appt.title), \(appt.startsAt.formatted(date: .abbreviated, time: .shortened))")
+        .accessibilityHint("Edit appointment")
     }
 
     private func deleteFrom(_ list: [Appointment], _ offsets: IndexSet) {

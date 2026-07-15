@@ -2,6 +2,8 @@ import Foundation
 import SwiftData
 import os
 
+enum AppointmentWriterError: Error, Equatable { case emptyTitle }
+
 /// The single place an `Appointment` is written — like `MetricWriter` for metrics. Trims text fields,
 /// throws on a save failure (never a silent success), and re-arms notifications so a new/edited
 /// appointment's reminder is scheduled promptly rather than only on the next foreground.
@@ -15,10 +17,11 @@ enum AppointmentWriter {
                        durationMinutes: Int?, notes: String?, reminderLeadMinutes: Int?,
                        iconName: String? = "calendar", colorHex: String? = nil,
                        into context: ModelContext) throws -> Appointment {
-        let appt = Appointment(title: title.trimmingCharacters(in: .whitespaces),
+        let appt = Appointment(title: try requireTitle(title),
                                providerName: cleaned(providerName), location: cleaned(location),
                                startsAt: startsAt, durationMinutes: durationMinutes, notes: cleaned(notes),
-                               reminderLeadMinutes: reminderLeadMinutes, iconName: iconName, colorHex: colorHex)
+                               reminderLeadMinutes: normalizedLead(reminderLeadMinutes),
+                               iconName: iconName, colorHex: colorHex)
         context.insert(appt)
         try save(context)
         return appt
@@ -28,15 +31,27 @@ enum AppointmentWriter {
     static func update(_ appt: Appointment, title: String, providerName: String?, location: String?,
                        startsAt: Date, durationMinutes: Int?, notes: String?, reminderLeadMinutes: Int?,
                        into context: ModelContext) throws {
-        appt.title = title.trimmingCharacters(in: .whitespaces)
+        appt.title = try requireTitle(title)
         appt.providerName = cleaned(providerName)
         appt.location = cleaned(location)
         appt.startsAt = startsAt
         appt.durationMinutes = durationMinutes
         appt.notes = cleaned(notes)
-        appt.reminderLeadMinutes = reminderLeadMinutes
+        appt.reminderLeadMinutes = normalizedLead(reminderLeadMinutes)
         try save(context)
     }
+
+    /// A title is required — a blank one would produce an empty-title notification. The UI already
+    /// disables Save on empty, but the writer is the invariant boundary.
+    private static func requireTitle(_ title: String) throws -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw AppointmentWriterError.emptyTitle }
+        return trimmed
+    }
+
+    /// A reminder lead can never be negative (that would fire a reminder AFTER the appointment). Clamp to
+    /// 0 (= at the time); nil stays nil (no reminder).
+    private static func normalizedLead(_ lead: Int?) -> Int? { lead.map { max(0, $0) } }
 
     static func delete(_ appt: Appointment, from context: ModelContext) throws {
         context.delete(appt)

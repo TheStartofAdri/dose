@@ -218,7 +218,7 @@ final class NotificationCancellationTests: XCTestCase {
         ctx.insert(log)
 
         let scheduled = captureScheduled {
-            NotificationScheduler.shared.reschedule(medicines: [med], logs: [log],
+            NotificationScheduler.shared.reschedule(medicines: [med], logs: [log], appointments: [],
                                                     escalationEnabled: false, now: now)
         }
         XCTAssertTrue(scheduled.contains(NotificationPlanner.snoozeID(med.id, slot)),
@@ -243,7 +243,7 @@ final class NotificationCancellationTests: XCTestCase {
         ctx.insert(med); ctx.insert(dt)
 
         let scheduled = captureScheduled {
-            NotificationScheduler.shared.reschedule(medicines: [med], logs: [], escalationEnabled: false)
+            NotificationScheduler.shared.reschedule(medicines: [med], logs: [], appointments: [], escalationEnabled: false)
         }
         XCTAssertTrue(scheduled.contains("refill.sentinel"),
                       "an ongoing schedule arms a coverage-end sentinel so reminders can't run out silently")
@@ -283,12 +283,12 @@ final class NotificationCancellationTests: XCTestCase {
         ctx.insert(med); ctx.insert(dt)
 
         let withData = captureScheduled {
-            NotificationScheduler.shared.reschedule(medicines: [med], logs: [], escalationEnabled: false)
+            NotificationScheduler.shared.reschedule(medicines: [med], logs: [], appointments: [], escalationEnabled: false)
         }
         XCTAssertTrue(withData.contains(NotificationScheduler.weeklyDigestID), "digest armed when there's data")
 
         let empty = captureScheduled {
-            NotificationScheduler.shared.reschedule(medicines: [], logs: [], escalationEnabled: false)
+            NotificationScheduler.shared.reschedule(medicines: [], logs: [], appointments: [], escalationEnabled: false)
         }
         XCTAssertFalse(empty.contains(NotificationScheduler.weeklyDigestID), "no digest with nothing to review")
     }

@@ -146,7 +146,7 @@ enum ReportPDFRenderer {
                 ensure(50)
                 draw("Upcoming appointments", font: .boldSystemFont(ofSize: 15), spacingAfter: 4)
                 for appt in data.appointments {
-                    ensure(30)
+                    ensure(40)   // room for title + a wrapping provider·location·date line (avoid orphaning the title)
                     draw(appt.title, font: .boldSystemFont(ofSize: 13), spacingAfter: 1)
                     let subtitle = appt.subtitle.map { "\($0)  ·  " } ?? ""
                     draw("\(subtitle)\(dateTime.string(from: appt.when))",

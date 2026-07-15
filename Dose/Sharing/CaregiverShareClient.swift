@@ -67,12 +67,29 @@ struct CaregiverShareClient {
 
         let (data, http) = try await sendMapping(request)
         if let mapped = Self.error(forStatus: http.statusCode) { throw mapped }
-        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = Self.flexibleISO8601
         guard let result = try? dec.decode(CaregiverShareResult.self, from: data) else {
             throw CaregiverShareError.decoding
         }
         return result
     }
+
+    /// ISO-8601 decode tolerant of BOTH fractional and whole-second timestamps. The server's `expiresAt`
+    /// is a JS `Date.toISOString()`, which ALWAYS carries milliseconds (e.g. "…:25.243Z"); Swift's
+    /// built-in `.iso8601` strategy rejects fractional seconds, so a real 200 would otherwise fail to
+    /// decode and break every create.
+    static let flexibleISO8601: JSONDecoder.DateDecodingStrategy = {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return .custom { decoder in
+            let s = try decoder.singleValueContainer().decode(String.self)
+            if let d = withFraction.date(from: s) ?? plain.date(from: s) { return d }
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                    debugDescription: "Invalid ISO-8601 date: \(s)"))
+        }
+    }()
 
     func revoke(token: String) async throws {
         guard let endpoint, let anonKey else {

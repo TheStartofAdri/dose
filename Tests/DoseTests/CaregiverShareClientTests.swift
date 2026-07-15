@@ -30,8 +30,12 @@ final class CaregiverShareClientTests: XCTestCase {
     }
 
     func testCreateShareParsesResultAndPostsSnapshot() async throws {
-        let expires = Date(timeIntervalSince1970: 1_800_000_000)
-        let iso = ISO8601DateFormatter().string(from: expires)
+        // Sub-second expiry, formatted WITH fractional seconds — exactly what the server sends
+        // (JS `Date.toISOString()` always includes millis). Swift's built-in `.iso8601` strategy REJECTS
+        // this, so this fixture fails-before / passes-after the flexible-decode fix.
+        let expires = Date(timeIntervalSince1970: 1_800_000_000.5)
+        let fmt = ISO8601DateFormatter(); fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let iso = fmt.string(from: expires)
         let json = Data(#"{"token":"abc123","viewUrl":"https://x.supabase.co/functions/v1/caregiver-share?t=abc123","expiresAt":"\#(iso)"}"#.utf8)
         let stub = StubTransport(json, 200)
         let client = CaregiverShareClient(transport: stub, endpoint: endpoint, anonKey: "test-anon")

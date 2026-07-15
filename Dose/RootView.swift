@@ -77,7 +77,7 @@ struct RootView: View {
                 await NotificationScheduler.shared.requestAuthorization()
             }
             await NotificationScheduler.shared.refreshPermissionStatus()
-            NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, escalationEnabled: escalationEnabled)
+            NotificationScheduler.shared.reschedule(medicines: medicines, logs: logs, appointments: appointments, escalationEnabled: escalationEnabled)
             // Diagnostics only, fire-and-forget: surface an unreachable AI backend in Settings at launch
             // instead of only on first Generate/Analyze. Never blocks the core loop above; skipped under
             // -skipAuth so UI tests stay deterministic (they use -stubAIBackendUnreachable instead).

@@ -104,3 +104,19 @@ enum DataExport {
         return url
     }
 }
+
+extension DataExport.Payload {
+    /// Forward-compatible decode: a future import of an OLDER export (written before `metrics` /
+    /// `appointments` existed) defaults those to `[]` instead of throwing `keyNotFound`. Declared in an
+    /// EXTENSION so the synthesized memberwise init that `DataExport.payload(...)` relies on is preserved.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            exportedAt: try c.decode(Date.self, forKey: .exportedAt),
+            medicines: try c.decode([DataExport.Med].self, forKey: .medicines),
+            doseLogs: try c.decode([DataExport.Log].self, forKey: .doseLogs),
+            notes: try c.decode([DataExport.NoteDTO].self, forKey: .notes),
+            metrics: try c.decodeIfPresent([DataExport.MetricDTO].self, forKey: .metrics) ?? [],
+            appointments: try c.decodeIfPresent([DataExport.AppointmentDTO].self, forKey: .appointments) ?? [])
+    }
+}

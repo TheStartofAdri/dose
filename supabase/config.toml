@@ -8,9 +8,13 @@ project_id = "dose"
 [functions.parse-medication]
 verify_jwt = true
 
-# The caregiver-share view is a top-level browser navigation (a caregiver opening a link), which can't
-# send an Authorization header — so this function is PUBLIC and gated by the unguessable token in the
-# URL, not a JWT. Checked in explicitly so it's a deliberate, reviewable property of the repo. The app
-# still passes the anon key on POST/DELETE; the function's own auth is the random token + service role.
+# Caregiver share is split into two functions so auth can differ by path:
+#  - caregiver-share (create + revoke, WRITE): verify_jwt = true → the platform requires the app's anon
+#    key + rate-limits, matching parse-medication. Browsers never write, so no CORS.
+#  - caregiver-share-view (read, PUBLIC): verify_jwt = false → a caregiver's browser opens the link with
+#    no auth header; access is gated by the unguessable token. This is the ONLY public verb.
 [functions.caregiver-share]
+verify_jwt = true
+
+[functions.caregiver-share-view]
 verify_jwt = false
