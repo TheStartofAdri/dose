@@ -39,6 +39,9 @@ struct MetricTrendCard: View {
                     }
                 }
                 .frame(height: 110)
+                // Name the chart for VoiceOver (it's otherwise an unlabeled graph); keep Swift Charts'
+                // built-in data navigation. The latest reading is already spoken by the header row above.
+                .accessibilityLabel("\(metric.name) trend over time")
             } else {
                 Text("Log a few more to see a trend.")
                     .font(.caption).foregroundStyle(.secondary)

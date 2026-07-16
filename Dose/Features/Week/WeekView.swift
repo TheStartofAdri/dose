@@ -177,6 +177,7 @@ struct WeekView: View {
             ForEach(highlights) { highlight in
                 HStack(spacing: 10) {
                     Image(systemName: highlight.icon).foregroundStyle(tint(highlight.tone)).frame(width: 24)
+                        .accessibilityHidden(true)   // the title carries the meaning; the tinted icon is decorative
                     Text(highlight.title).font(.subheadline)
                     Spacer(minLength: 0)
                 }
