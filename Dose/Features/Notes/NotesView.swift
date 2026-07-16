@@ -32,6 +32,10 @@ struct NotesView: View {
                                 ForEach(shown) { note in
                                     Button { selectedNote = note } label: { row(note) }
                                         .buttonStyle(.plain)
+                                        // Force every row separator to the leading edge. Without this a
+                                        // row with trailing content (the photo count `Label`) insets its
+                                        // separator to start AFTER that label — a stray mid-row line.
+                                        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                                 }
                                 .onDelete { offsets in delete(shown, offsets) }
                             }
