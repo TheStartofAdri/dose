@@ -44,7 +44,7 @@ struct ArchivedMedicinesView: View {
 
     private func row(_ med: Medicine) -> some View {
         HStack(spacing: 12) {
-            MedicineIconBadge(iconName: med.iconName, colorHex: med.colorHex, size: 30)
+            MedicineIconBadge(iconName: med.iconName, colorHex: med.colorHex, size: 34)   // match the other entity rows
             VStack(alignment: .leading, spacing: 1) {
                 Text(med.name).font(.headline)
                 if let dosage = med.dosage, !dosage.isEmpty {
