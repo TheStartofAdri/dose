@@ -228,9 +228,11 @@ enum NotificationPlanner {
             let medLogs = logsByMed[medicine.id] ?? []
             let remaining = RefillCalculator.unitsRemaining(unitsAtRefill: medicine.unitsAtRefill,
                                                             refillDate: medicine.refillDate,
-                                                            unitsPerDose: medicine.unitsPerDose, logs: medLogs)
-            let perDay = RefillCalculator.averageDosesPerDay(rules: medicine.rules, from: now,
-                                                             window: windowDays, calendar: calendar)
+                                                            unitsPerDose: medicine.unitsPerDose, logs: medLogs,
+                                                            medicineID: medicine.id)
+            let perDay = RefillCalculator.averageDosesPerDay(rules: medicine.rules, from: now, window: windowDays,
+                                                             createdAt: medicine.createdAt, endDate: medicine.endDate,
+                                                             calendar: calendar)
             guard let days = RefillCalculator.daysOfSupply(remaining: remaining,
                                                            unitsPerDose: medicine.unitsPerDose,
                                                            dosesPerDay: perDay) else { continue }

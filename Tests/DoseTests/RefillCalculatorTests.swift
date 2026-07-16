@@ -42,6 +42,39 @@ final class RefillCalculatorTests: XCTestCase {
         XCTAssertEqual(RefillCalculator.averageDosesPerDay(rules: [], from: date(2026, 6, 1), calendar: cal), 0)
     }
 
+    /// A bounded course must NOT be counted as dosing every day of the projection window. Fail-before:
+    /// `averageDosesPerDay` built its snapshot with `endDate: nil`, so a 3-day course reads as 2.0/day
+    /// (dosing the whole 28-day window) → inflated consumption → wrong days-of-supply & reminder timing.
+    func testAverageDosesPerDayHonorsCourseEndDate() {
+        let start = date(2026, 6, 1)                      // window starts here
+        let end = date(2026, 6, 3)                        // course ends after 3 in-course days (Jun 1–3)
+        let twiceDaily = [DoseSlotRule(hour: 8, minute: 0), DoseSlotRule(hour: 20, minute: 0)]
+        let ongoing = RefillCalculator.averageDosesPerDay(rules: twiceDaily, from: start, window: 28, calendar: cal)
+        XCTAssertEqual(ongoing, 2.0, accuracy: 0.001, "an ongoing med doses twice every day of the window")
+        let bounded = RefillCalculator.averageDosesPerDay(rules: twiceDaily, from: start, window: 28,
+                                                          createdAt: start, endDate: end, calendar: cal)
+        XCTAssertEqual(bounded, 6.0 / 28.0, accuracy: 0.001, "6 doses across 3 in-course days ÷ 28-day window")
+        XCTAssertLessThan(bounded, ongoing, "a course ending in 3 days consumes far less than dosing all 28 days")
+    }
+
+    /// `unitsRemaining` with a `medicineID` counts only THIS medicine's takes — so an unfiltered log array
+    /// (or one carrying a deleted med's orphaned takes) can't over-count. Fail-before: no predicate existed.
+    func testUnitsRemainingFiltersByMedicineID() {
+        let refill = date(2026, 6, 1)
+        let other = UUID()
+        let logs = [taken(date(2026, 6, 2)), taken(date(2026, 6, 3)),                       // 2 for medID
+                    DoseLogSnapshot(medicineID: other, scheduledFor: date(2026, 6, 2),       // 3 for another med
+                                    action: .taken, actionedAt: date(2026, 6, 2)),
+                    DoseLogSnapshot(medicineID: other, scheduledFor: date(2026, 6, 3),
+                                    action: .taken, actionedAt: date(2026, 6, 3)),
+                    DoseLogSnapshot(medicineID: other, scheduledFor: date(2026, 6, 4),
+                                    action: .taken, actionedAt: date(2026, 6, 4))]
+        XCTAssertEqual(RefillCalculator.unitsRemaining(unitsAtRefill: 30, refillDate: refill, unitsPerDose: 1,
+                                                       logs: logs, medicineID: medID), 28, "only medID's 2 takes")
+        XCTAssertEqual(RefillCalculator.unitsRemaining(unitsAtRefill: 30, refillDate: refill, unitsPerDose: 1,
+                                                       logs: logs), 25, "unscoped counts all 5 takes (legacy behavior)")
+    }
+
     func testDaysOfSupply() {
         XCTAssertEqual(RefillCalculator.daysOfSupply(remaining: 20, unitsPerDose: 1, dosesPerDay: 2), 10)
         XCTAssertNil(RefillCalculator.daysOfSupply(remaining: 20, unitsPerDose: 1, dosesPerDay: 0), "no scheduled usage → can't project")
