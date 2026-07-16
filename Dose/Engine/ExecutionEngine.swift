@@ -218,7 +218,8 @@ enum ExecutionEngine {
         // lifetime rule adherence & streak use for missability; presence and missability differ only on
         // the creation day, which is exactly where the Today↔History "missed" mismatch came from.
         let byID = Dictionary(medicines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return scheduledSlots(medicines: medicines, on: now, calendar: calendar).map { slot in
+
+        func makeDose(_ slot: ScheduledSlot) -> TodayDose {
             let latest = latestLog(medicineID: slot.medicineID, scheduledFor: slot.scheduledFor, in: logs)
             let canBeMissed = byID[slot.medicineID].map {
                 isWithinLifetime(scheduledFor: slot.scheduledFor, createdAt: $0.createdAt,
@@ -230,6 +231,25 @@ enum ExecutionEngine {
                              dosage: slot.dosage, scheduledFor: slot.scheduledFor,
                              status: status, snoozedUntil: snoozedUntil)
         }
+
+        // Yesterday's late doses that are STILL within grace (or an in-flight snooze) at `now` carry into
+        // Today, so a 23:30 dose stays takeable until 00:30 instead of vanishing at the midnight rollover
+        // while adherence still counts it missed at 00:30 — honoring the "still takeable for its grace
+        // window" contract across the day boundary. Only genuinely-actionable, in-lifetime carryovers are
+        // surfaced: settled (taken/skipped), long-missed, and pre-lifetime phantom slots are excluded (the
+        // last would otherwise read `.due` forever, since they can never become missed).
+        var carried: [TodayDose] = []
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now) {
+            for slot in scheduledSlots(medicines: medicines, on: yesterday, calendar: calendar) {
+                guard let med = byID[slot.medicineID],
+                      isWithinLifetime(scheduledFor: slot.scheduledFor, createdAt: med.createdAt,
+                                       endDate: med.endDate, calendar: calendar) else { continue }
+                let dose = makeDose(slot)
+                if dose.status == .due || dose.status == .snoozed { carried.append(dose) }
+            }
+        }
+        let today = scheduledSlots(medicines: medicines, on: now, calendar: calendar).map(makeDose)
+        return carried + today   // carried are all earlier than any of today's slots → stays time-sorted
     }
 
     // MARK: Internal helpers (shared with StreakCalculator)
