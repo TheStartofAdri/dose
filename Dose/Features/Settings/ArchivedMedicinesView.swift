@@ -79,6 +79,10 @@ struct ArchivedMedicinesView: View {
     }
 
     private func delete(_ med: Medicine) {
+        // Clear the stored reference BEFORE deleting (matches TodayView's "B1" guard): the delete's save
+        // re-fires the `medicines` @Query, and the `.confirmationDialog(presenting: deleting)` actions/
+        // message read `med.name` — reading an invalidated @Model there is a SwiftData fatal error.
+        deleting = nil
         MedicineWriter.deletePermanently(med, context: context, escalationEnabled: escalationEnabled)
     }
 }

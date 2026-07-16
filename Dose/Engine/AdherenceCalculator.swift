@@ -193,9 +193,13 @@ enum AdherenceCalculator {
                     case .taken, .skipped:
                         break   // settled → not missed
                     case .snoozed, .none:
-                        if now > missedCutoff(slot: slot, latest: latest) && ExecutionEngine.isWithinLifetime(
-                            scheduledFor: slot, createdAt: medicine.createdAt,
-                            endDate: medicine.endDate, calendar: calendar) {
+                        // Same gate as `dayAdherence`'s missed branch: suppress a reconstructed miss for a
+                        // slot BEFORE the schedule was last edited (the old rules are unknown), so this
+                        // MIRROR of the missed count stays in exact parity — no phantom pre-edit misses.
+                        if now > missedCutoff(slot: slot, latest: latest)
+                            && ExecutionEngine.isWithinLifetime(scheduledFor: slot, createdAt: medicine.createdAt,
+                                                                endDate: medicine.endDate, calendar: calendar)
+                            && (medicine.scheduleChangedAt.map { slot >= $0 } ?? true) {
                             result.append(ScheduledSlot(medicineID: medicine.id, medicineName: medicine.name,
                                                         dosage: medicine.dosage, scheduledFor: slot))
                         }
