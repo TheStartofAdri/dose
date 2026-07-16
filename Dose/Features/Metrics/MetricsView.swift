@@ -64,7 +64,8 @@ struct MetricsView: View {
             if metric.hasEntryToday() {
                 Label("Logged", systemImage: "checkmark.circle.fill")
                     .labelStyle(.iconOnly)
-                    .foregroundStyle(DoseColors.taken)
+                    .font(.subheadline)          // cap it — an un-fonted iconOnly Label renders body-size,
+                    .foregroundStyle(DoseColors.taken)   // so the row's right edge jumped vs. the "Log" caption
                     .accessibilityLabel("Logged today")
             } else {
                 Text("Log").font(.caption.weight(.semibold)).foregroundStyle(DoseColors.accent)
