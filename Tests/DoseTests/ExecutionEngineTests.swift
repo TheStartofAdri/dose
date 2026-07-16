@@ -143,4 +143,53 @@ final class ExecutionEngineTests: XCTestCase {
         let doses = ExecutionEngine.todaysDoses(medicines: [med], logs: [], now: date(2026, 6, 16, 7, 0), calendar: cal)
         XCTAssertEqual(doses.map { cal.component(.hour, from: $0.scheduledFor) }, [8, 20])
     }
+
+    // MARK: - Grace across the midnight boundary (P2 #5)
+
+    private func lateMed(createdAt: Date = .distantPast, endDate: Date? = nil) -> MedicineSnapshot {
+        MedicineSnapshot(id: medID, name: "Night pill", dosage: nil,
+                         rules: [DoseSlotRule(hour: 23, minute: 30, weekdays: [])],
+                         createdAt: createdAt, endDate: endDate)
+    }
+    private func carriedFromJun16(_ doses: [TodayDose]) -> TodayDose? {
+        doses.first { cal.isDate($0.scheduledFor, inSameDayAs: date(2026, 6, 16)) }
+    }
+
+    /// A 23:30 dose is still within its 60-min grace at 00:15 the next day, so it must stay takeable on
+    /// Today across the midnight rollover — not vanish. Fail-before: `todaysDoses` projected only `now`'s
+    /// calendar day, so the previous night's slot disappeared while adherence still counted it missed at 00:30.
+    func testLateDoseStillDueAfterMidnight() {
+        let doses = ExecutionEngine.todaysDoses(medicines: [lateMed()], logs: [],
+                                                now: date(2026, 6, 17, 0, 15), calendar: cal)
+        let carried = carriedFromJun16(doses)
+        XCTAssertEqual(carried?.scheduledFor, date(2026, 6, 16, 23, 30), "the previous night's dose is surfaced")
+        XCTAssertEqual(carried?.status, .due, "still within its grace window → takeable, not missed/hidden")
+    }
+
+    /// Once its grace has fully elapsed (00:31, past 23:30 + 60 min), the late dose drops off Today — it's
+    /// now genuinely missed and belongs to History, not carried forward indefinitely.
+    func testLateDoseGoneOnceGraceElapsed() {
+        let doses = ExecutionEngine.todaysDoses(medicines: [lateMed()], logs: [],
+                                                now: date(2026, 6, 17, 0, 31), calendar: cal)
+        XCTAssertNil(carriedFromJun16(doses), "past grace, yesterday's missed dose is not carried into Today")
+    }
+
+    /// A taken late dose is settled — it must NOT reappear on Today after midnight.
+    func testSettledLateDoseNotCarried() {
+        let taken = DoseLogSnapshot(medicineID: medID, scheduledFor: date(2026, 6, 16, 23, 30),
+                                    action: .taken, actionedAt: date(2026, 6, 16, 23, 40))
+        let doses = ExecutionEngine.todaysDoses(medicines: [lateMed()], logs: [taken],
+                                                now: date(2026, 6, 17, 0, 15), calendar: cal)
+        XCTAssertNil(carriedFromJun16(doses), "a taken late dose is settled and doesn't carry into the next day")
+    }
+
+    /// A pre-lifetime phantom must NOT carry: a med created at Jun 16 23:45 has a 23:30 slot that day which
+    /// was never actionable (`canBeMissed == false` → perpetually `.due`). Carrying it would pin a dose to
+    /// Today forever. Guard that the midnight carryover excludes it.
+    func testPreLifetimePhantomNotCarried() {
+        let med = lateMed(createdAt: date(2026, 6, 16, 23, 45))    // created AFTER the 23:30 slot
+        let doses = ExecutionEngine.todaysDoses(medicines: [med], logs: [],
+                                                now: date(2026, 6, 17, 0, 15), calendar: cal)
+        XCTAssertNil(carriedFromJun16(doses), "a slot before the med's creation instant is never carried forward")
+    }
 }

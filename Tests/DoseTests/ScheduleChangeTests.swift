@@ -64,4 +64,32 @@ final class ScheduleChangeTests: XCTestCase {
                                             from: at(2026, 7, 5), to: at(2026, 7, 5), now: now, calendar: cal)
         XCTAssertEqual(days.first?.missed, 1, "an un-edited med's genuinely-missed past slot still counts")
     }
+
+    /// `missedEvents` (History "Missed" list / Week "missed this week") must apply the SAME gate as the
+    /// count — no phantom pre-edit missed rows. Fail-before: the gate was only on the count, not the list.
+    func testMissedEventsExcludesPreEditPhantomMisses() {
+        let id = UUID()
+        let now = at(2026, 7, 13, 12)
+        let med = MedicineSnapshot(id: id, name: "Aspirin", dosage: nil, rules: [DoseSlotRule(hour: 9, minute: 0)],
+                                   createdAt: at(2026, 7, 1), scheduleChangedAt: at(2026, 7, 13, 9))
+        let events = AdherenceCalculator.missedEvents(medicines: [med], logs: [],
+                                                      from: at(2026, 7, 5), to: at(2026, 7, 5), now: now, calendar: cal)
+        XCTAssertTrue(events.isEmpty, "no phantom missed EVENT for a pre-edit reconstructed slot")
+    }
+
+    /// The locked parity invariant (missedEvents.count == missedCount(days)) must hold for an EDITED med.
+    /// Fail-before: the list counted pre-edit slots the count suppressed → a "0 missed" tile beside N rows.
+    func testMissedEventsParityHoldsForEditedMedicine() {
+        let id = UUID()
+        let now = at(2026, 7, 13, 12)
+        let med = MedicineSnapshot(id: id, name: "Aspirin", dosage: nil, rules: [DoseSlotRule(hour: 9, minute: 0)],
+                                   createdAt: at(2026, 7, 1), scheduleChangedAt: at(2026, 7, 10, 9))
+        let from = at(2026, 7, 5), to = at(2026, 7, 12)
+        let count = AdherenceCalculator.missedCount(
+            AdherenceCalculator.days(medicines: [med], logs: [], from: from, to: to, now: now, calendar: cal))
+        let events = AdherenceCalculator.missedEvents(medicines: [med], logs: [], from: from, to: to,
+                                                      now: now, calendar: cal).count
+        XCTAssertEqual(events, count, "missedEvents count must equal missedCount even after a schedule edit")
+        XCTAssertEqual(count, 3, "only the 3 post-edit days (Jul 10–12) are missed")
+    }
 }

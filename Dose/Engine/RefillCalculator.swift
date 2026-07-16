@@ -9,19 +9,26 @@ enum RefillCalculator {
     /// Units left = `unitsAtRefill` − `unitsPerDose` × (taken doses on/after `refillDate`). `nil` when the
     /// medicine isn't tracking refills (no captured stock). Clamped at 0 (never negative).
     static func unitsRemaining(unitsAtRefill: Int?, refillDate: Date?, unitsPerDose: Int,
-                               logs: [DoseLogSnapshot]) -> Int? {
+                               logs: [DoseLogSnapshot], medicineID: UUID? = nil) -> Int? {
         guard let unitsAtRefill, let refillDate else { return nil }
-        let consumedDoses = logs.filter { $0.action == .taken && $0.actionedAt >= refillDate }.count
+        // `medicineID` (when given) scopes consumption to THIS medicine — so a caller that passes an
+        // unfiltered log array (or one with a deleted med's orphaned logs) can't over-count.
+        let consumedDoses = logs.filter { log in
+            guard log.action == .taken, log.actionedAt >= refillDate else { return false }
+            return medicineID == nil || log.medicineID == medicineID
+        }.count
         return max(0, unitsAtRefill - max(0, unitsPerDose) * consumedDoses)
     }
 
     /// Average doses per day implied by the schedule, measured over `window` days forward from `now`, so a
     /// weekly / every-N-days pattern yields a fractional rate (e.g. every-3-days ≈ 0.33/day). 0 when nothing
-    /// is scheduled. Uses the SAME `ExecutionEngine.scheduledSlots` projection Today/Week read.
+    /// is scheduled. Uses the SAME `ExecutionEngine.scheduledSlots` projection Today/Week read — so it
+    /// honors the medicine's `createdAt`/`endDate`: a bounded course stops counting doses past its end day.
     static func averageDosesPerDay(rules: [DoseSlotRule], from now: Date, window: Int = 28,
+                                   createdAt: Date = .distantPast, endDate: Date? = nil,
                                    calendar: Calendar = .current) -> Double {
         guard window > 0, !rules.isEmpty else { return 0 }
-        let med = MedicineSnapshot(id: UUID(), name: "", dosage: nil, rules: rules)
+        let med = MedicineSnapshot(id: UUID(), name: "", dosage: nil, rules: rules, createdAt: createdAt, endDate: endDate)
         let start = calendar.startOfDay(for: now)
         var slots = 0
         for offset in 0..<window {
@@ -57,8 +64,9 @@ extension Medicine {
     func daysOfSupply(logs: [DoseLog], now: Date = .now, calendar: Calendar = .current) -> Int? {
         let snaps = logs.filter { $0.medicineID == id }.map { $0.snapshot() }
         let remaining = RefillCalculator.unitsRemaining(unitsAtRefill: unitsAtRefill, refillDate: refillDate,
-                                                        unitsPerDose: unitsPerDose, logs: snaps)
-        let perDay = RefillCalculator.averageDosesPerDay(rules: doseTimes.map { $0.rule }, from: now, calendar: calendar)
+                                                        unitsPerDose: unitsPerDose, logs: snaps, medicineID: id)
+        let perDay = RefillCalculator.averageDosesPerDay(rules: doseTimes.map { $0.rule }, from: now,
+                                                         createdAt: createdAt, endDate: endDate, calendar: calendar)
         return RefillCalculator.daysOfSupply(remaining: remaining, unitsPerDose: unitsPerDose, dosesPerDay: perDay)
     }
 

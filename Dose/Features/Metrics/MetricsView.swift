@@ -14,7 +14,8 @@ struct MetricsView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if active.isEmpty {
+                let items = active   // one snapshot for both the list and its swipe-delete (see `delete`)
+                if items.isEmpty {
                     VStack {
                         Spacer()
                         DoseEmptyState(icon: "heart.text.square",
@@ -27,11 +28,11 @@ struct MetricsView: View {
                     }
                 } else {
                     List {
-                        ForEach(active) { metric in
+                        ForEach(items) { metric in
                             Button { logging = metric } label: { row(metric) }
                                 .buttonStyle(.plain)
                         }
-                        .onDelete(perform: delete)
+                        .onDelete { offsets in delete(items, offsets) }
                     }
                     .listStyle(.insetGrouped)
                 }
@@ -74,9 +75,11 @@ struct MetricsView: View {
         .contentShape(Rectangle())
     }
 
-    /// Deleting a metric removes it and (cascade) its entries.
-    private func delete(_ offsets: IndexSet) {
-        for index in offsets { context.delete(active[index]) }
+    /// Deleting a metric removes it and (cascade) its entries. Takes the SAME array the `ForEach` rendered
+    /// (not the `active` computed var, which re-filters on each access) so the swipe offsets can't index a
+    /// shifted/short array if the @Query refires mid-delete — matching NotesView/AppointmentsView.
+    private func delete(_ items: [TrackedMetric], _ offsets: IndexSet) {
+        for index in offsets { context.delete(items[index]) }
         try? context.save()
     }
 }
